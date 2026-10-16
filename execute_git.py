@@ -21,6 +21,55 @@ GH_PATH = r"C:\Program Files\GitHub CLI"
 if os.path.exists(GH_PATH) and GH_PATH not in os.environ.get("PATH", ""):
     os.environ["PATH"] = GH_PATH + os.pathsep + os.environ.get("PATH", "")
 
+def handle_commit_and_push(target_repo: str) -> tuple[int, str]:
+    """Robustly stages, commits, and pushes to GitHub with accurate branch detection and syncing."""
+    # 1. Stage all changes
+    print("[execute_git.py] Staging changes: git add -A")
+    subprocess.run(["git", "add", "-A"], cwd=target_repo, capture_output=True)
+
+    # 2. Check if changes exist to commit
+    status_proc = subprocess.run(["git", "status", "--porcelain"], cwd=target_repo, capture_output=True, text=True)
+    if status_proc.stdout.strip():
+        print("[execute_git.py] Committing changes...")
+        commit_proc = subprocess.run(
+            ["git", "commit", "-m", "Automated update via Jarvis"],
+            cwd=target_repo,
+            capture_output=True,
+            text=True
+        )
+        if commit_proc.returncode != 0:
+            err = commit_proc.stderr.strip() or commit_proc.stdout.strip()
+            print(f"[execute_git.py] Commit note: {err}")
+    else:
+        print("[execute_git.py] Working tree clean, nothing new to commit.")
+
+    # 3. Detect current branch
+    br_proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=target_repo, capture_output=True, text=True)
+    curr_branch = br_proc.stdout.strip() or "main"
+    print(f"[execute_git.py] Current active branch: {curr_branch}")
+
+    # 4. Push current branch to origin
+    print(f"[execute_git.py] Pushing to origin/{curr_branch}...")
+    push_proc = subprocess.run(
+        ["git", "push", "-u", "origin", curr_branch],
+        cwd=target_repo,
+        capture_output=True,
+        text=True
+    )
+    if push_proc.returncode != 0:
+        err = push_proc.stderr.strip() or push_proc.stdout.strip()
+        return push_proc.returncode, f"Git push error: {err}"
+
+    # 5. Synchronize both main and master so GitHub default branch is always updated
+    if curr_branch == "main":
+        print("[execute_git.py] Syncing main to master on origin...")
+        subprocess.run(["git", "push", "origin", "main:master"], cwd=target_repo, capture_output=True)
+    elif curr_branch == "master":
+        print("[execute_git.py] Syncing master to main on origin...")
+        subprocess.run(["git", "push", "origin", "master:main"], cwd=target_repo, capture_output=True)
+
+    return 0, f"Successfully pushed to GitHub ({curr_branch})"
+
 def main():
     intent_file = sys.argv[1] if len(sys.argv) > 1 else os.path.join(PROJECT_ROOT, "last_intent.json")
     if not os.path.exists(intent_file):
@@ -47,14 +96,30 @@ def main():
         sys.exit(0)
 
     command = data.get("command", "git status").strip()
+    task_desc = data.get("task_description", "").lower()
     target_repo = os.getenv("TARGET_REPO_PATH", PROJECT_ROOT).strip()
     if target_repo == ".":
         target_repo = PROJECT_ROOT
     else:
         target_repo = os.path.abspath(target_repo)
 
-    print(f"[Jarvis Executing]: '{command}' in '{target_repo}'")
     status_file = os.path.join(PROJECT_ROOT, "last_status.txt")
+
+    # If task is commit and push, use dedicated robust handler
+    if "push" in command or "push" in task_desc or "commit" in task_desc:
+        print(f"[Jarvis Executing]: Robust Git Commit & Push in '{target_repo}'")
+        retcode, out_msg = handle_commit_and_push(target_repo)
+        print(f"[execute_git.py] {out_msg} (Exit code: {retcode})")
+        if retcode != 0:
+            with open(status_file, "w", encoding="utf-8") as f:
+                f.write(f"[GIT ERROR] {out_msg}")
+            sys.exit(retcode)
+        else:
+            with open(status_file, "w", encoding="utf-8") as f:
+                f.write(f"[GIT SUCCESS] {data.get('speaking_response', 'Git action completed.')}")
+            sys.exit(0)
+
+    print(f"[Jarvis Executing]: '{command}' in '{target_repo}'")
 
     try:
         proc = subprocess.run(
