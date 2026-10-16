@@ -185,7 +185,12 @@ def run_autonomous_pipeline(audio_path: str):
         spk_resp = intent.get("speaking_response", "")
 
         # Step 3: Handle Action vs QA
-        if itype == "git_action":
+        if itype == "git_query":
+            answer = spk_resp or "Checking git status, sir."
+            print(f"[Jarvis Pipeline] Speaking answer: {answer}")
+            subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), answer], cwd=PROJECT_ROOT)
+
+        elif itype == "git_action":
             # Acknowledge task start: "On it, sir..."
             start_phrase = spk_start or "On it, sir. Committing and pushing your changes."
             print(f"[Jarvis Pipeline] Announcing start: {start_phrase}")

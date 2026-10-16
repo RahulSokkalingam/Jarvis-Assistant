@@ -124,10 +124,31 @@ def is_antigravity_intent(transcript: str) -> bool:
             return True
     return any(w in t for w in ANTIGRAVITY_TRIGGER_KEYWORDS)
 
-def is_branch_creation(transcript: str) -> bool:
-    """Detects git branch creation requests."""
+def is_git_query(transcript: str) -> bool:
+    """Detects informational git questions (NOT action commands).
+    Examples: 'what branch am I on?', 'which branch am I in?', 'show me git status'
+    """
     t = transcript.lower()
-    return bool(re.search(r'\b(?:create|make|checkout\s+-b|new)\s+branch\b|\bbranch\s+[a-zA-Z0-9_\-\.\/]+', t))
+    # Question patterns about git state
+    query_patterns = [
+        r'\b(?:what|which|show|tell|current|check|display)\b.*\bbranch\b',
+        r'\bbranch\b.*\b(?:am i|are we|currently|right now|on|in)\b',
+        r'\b(?:what|which|show)\b.*\b(?:status|log|remote|diff|changes)\b',
+        r'\b(?:am i on|are we on)\b.*\bbranch\b',
+        r'\b(?:show|list|display)\b.*\b(?:branches|remotes|tags)\b',
+    ]
+    for p in query_patterns:
+        if re.search(p, t):
+            return True
+    return False
+
+def is_branch_creation(transcript: str) -> bool:
+    """Detects git branch creation requests. Excludes query/question patterns."""
+    t = transcript.lower()
+    # First, exclude any question patterns about branches
+    if is_git_query(transcript):
+        return False
+    return bool(re.search(r'\b(?:create|make|checkout\s+-b|new)\s+branch\b', t))
 
 def check_python_syntax(filepath: str) -> tuple[bool, str, int | None, str]:
     """Runs actual `python -m py_compile <filepath>` to capture real compilation status."""
@@ -214,7 +235,7 @@ You automate Git commands, dispatch code generation and bug fixes to Antigravity
 {codebase_context}
 ========================================
 
-Classify the user's input into one of four types:
+Classify the user's input into one of five types:
 1. "antigravity_task": Instruction to fix a bug, solve an error, write a new script, generate code, create an app, modify the HUD, change themes, or refactor code.
    - Any transcript mentioning "bug fix", "fix bug", "code changes", "create app", "modify HUD", "theme", or "antigravity" MUST be classified as "antigravity_task".
    - action: "bug_fix" | "code_generation" | "refactor"
@@ -224,20 +245,32 @@ Classify the user's input into one of four types:
    - speaking_progress: "Antigravity is reading <filename> and applying code patches..."
    - speaking_response: "Task completed, sir. Antigravity has resolved the issue in <filename>."
 2. "codebase_qa": Question about this project, its code, files, architecture, or behavior (no code change requested).
-3. "git_action": An instruction to perform Git/GitHub CLI actions (push, commit, status, branch, pr, repo).
+3. "git_query": An INFORMATIONAL QUESTION about git state — e.g. "what branch am I on?", "which branch am I in?", "show me git status", "what's the last commit?", "list all branches".
+   - CRITICAL: If the user asks a QUESTION about git (what/which/show/tell/current branch, status, log, etc.), this is a git_query, NOT a git_action.
+   - "What branch am I currently in?" is a git_query, NOT a branch creation.
+   - command: the git CLI command to run (e.g. "git branch --show-current", "git status", "git log --oneline -5")
+   - speaking_response: A direct spoken answer describing what was found.
+4. "git_action": An INSTRUCTION to perform a Git/GitHub WRITE operation (push, commit, create branch, pr, merge, delete).
+   - CRITICAL: Only classify as git_action when the user is COMMANDING an action, not asking a question.
    - If user asks to create or make a branch: command MUST be: cd "{PROJECT_ROOT}" && (git checkout -b <branch> 2>nul || git checkout <branch>) && git push -u origin <branch>
-4. "general_qa": General knowledge question, reasoning, conversation, or math.
+5. "general_qa": General knowledge question, reasoning, conversation, or math.
+
+CRITICAL DISAMBIGUATION RULES:
+- "What branch am I on?" / "Which branch am I currently in?" = git_query (NOT git_action, NOT branch creation)
+- "Create branch feature" / "Make a new branch called dev" = git_action
+- "Push all code to GitHub" = git_action
+- "Show me the git status" / "What are my uncommitted changes?" = git_query
 
 You must respond with ONLY a valid, raw JSON object matching the exact schema below.
 DO NOT include markdown code blocks (```json), explanations, or preamble.
 
 Strict Output Schema:
 {{
-  "type": "antigravity_task" | "codebase_qa" | "git_action" | "general_qa",
+  "type": "antigravity_task" | "codebase_qa" | "git_query" | "git_action" | "general_qa",
   "action": "bug_fix" | "code_generation" | "refactor" | "",
   "target_file": "<filename_if_antigravity_task>",
   "task_description": "<detailed_prompt_for_code_fix_if_antigravity>",
-  "command": "<cli_command_if_git_or_antigravity>",
+  "command": "<cli_command_if_git>",
   "speaking_start": "<short_task_start_announcement>",
   "speaking_progress": "<spoken_progress_announcement_if_antigravity>",
   "speaking_response": "<direct_spoken_answer_2_to_3_sentences_max>"
@@ -250,6 +283,10 @@ Rules:
 - For "codebase_qa":
   - Use the codebase digest above to give an accurate, crisp, 2-sentence conversational answer.
   - command: "", action: "", target_file: "", speaking_start: "", speaking_progress: ""
+- For "git_query":
+  - command: the exact git command to answer the question (e.g. "git branch --show-current", "git status --short", "git log --oneline -5")
+  - speaking_start: ""
+  - speaking_response: will be filled dynamically with the command output
 - For "git_action":
   - For branch creation (e.g. "create branch feature"):
     command: cd "{PROJECT_ROOT}" && (git checkout -b <branch> 2>nul || git checkout <branch>) && git push -u origin <branch>
@@ -288,6 +325,59 @@ Examples:
   "speaking_response": "Task completed, sir. Antigravity has resolved the issue in speak.py."
 }}
 """
+
+def resolve_git_query_command(transcript: str) -> str:
+    """Maps informational git questions to the correct git CLI command."""
+    t = transcript.lower()
+    if any(w in t for w in ["branch", "which branch", "what branch"]):
+        if any(w in t for w in ["all", "list", "show all", "every"]):
+            return "git branch -a"
+        return "git branch --show-current"
+    if any(w in t for w in ["status", "changes", "uncommitted", "modified"]):
+        return "git status --short"
+    if any(w in t for w in ["log", "commit history", "last commit", "recent commit"]):
+        return "git log --oneline -5"
+    if any(w in t for w in ["remote", "origin", "url"]):
+        return "git remote -v"
+    if any(w in t for w in ["diff", "difference"]):
+        return "git diff --stat"
+    if any(w in t for w in ["tag", "tags"]):
+        return "git tag"
+    return "git status"
+
+def execute_git_query(git_cmd: str, transcript: str) -> str:
+    """Executes a git query command and formats a concise spoken answer."""
+    try:
+        target_repo = os.getenv("TARGET_REPO_PATH", PROJECT_ROOT).strip()
+        if target_repo == ".":
+            target_repo = PROJECT_ROOT
+        else:
+            target_repo = os.path.abspath(target_repo)
+
+        res = subprocess.run(git_cmd.split(), cwd=target_repo, capture_output=True, text=True)
+        out = (res.stdout.strip() or res.stderr.strip() or "")
+
+        if "branch" in git_cmd:
+            if not out:
+                return "You are currently not on any branch, sir."
+            return f"You are currently on the {out} branch, sir."
+        elif "status" in git_cmd:
+            if not out:
+                return "Your working tree is clean with no uncommitted changes, sir."
+            return "Your working tree has uncommitted modifications, sir."
+        elif "log" in git_cmd:
+            if not out:
+                return "No commit history found, sir."
+            first_line = out.splitlines()[0] if out.splitlines() else out
+            return f"The latest commit is: {first_line}, sir."
+        elif "remote" in git_cmd:
+            if not out:
+                return "No remote repositories configured, sir."
+            return f"Your repository remotes are configured, sir."
+        else:
+            return f"Git reports: {out[:80]}, sir."
+    except Exception as e:
+        return f"Unable to check git status: {e}"
 
 def build_default_intent(transcript: str) -> dict:
     cd_prefix = f'cd "{PROJECT_ROOT}"'
@@ -328,7 +418,22 @@ def build_default_intent(transcript: str) -> dict:
             "speaking_response": speaking_response,
         }
 
-    # 2. Branch Creation & Push Intent (Strict command: git checkout -b <branch> && git push -u origin <branch>)
+    # 2. Git QUERY Intent — informational questions about git state (MUST come before branch creation check)
+    if is_git_query(transcript):
+        git_cmd = resolve_git_query_command(transcript)
+        speaking_resp = execute_git_query(git_cmd, transcript)
+        return {
+            "type": "git_query",
+            "action": "",
+            "target_file": "",
+            "task_description": f"Answering git query: {transcript}",
+            "command": git_cmd,
+            "speaking_start": "",
+            "speaking_progress": "",
+            "speaking_response": speaking_resp,
+        }
+
+    # 3. Branch Creation & Push Intent (Strict command: git checkout -b <branch> && git push -u origin <branch>)
     if is_branch_creation(transcript):
         bname = extract_branch_name(transcript)
         return {
@@ -344,7 +449,7 @@ def build_default_intent(transcript: str) -> dict:
             "speaking_response": f"Branch {bname} has been created and pushed to GitHub, sir.",
         }
 
-    # 2. Git Action Intent
+    # 4. Git Action Intent (commit, push, etc.)
     if any(w in t for w in ["push", "commit", "repo", "github"]):
         return {
             "type": "git_action",
@@ -362,14 +467,14 @@ def build_default_intent(transcript: str) -> dict:
         }
     elif any(w in t for w in ["status", "changes"]):
         return {
-            "type": "git_action",
+            "type": "git_query",
             "action": "",
             "target_file": "",
             "task_description": "Git status check",
-            "command": f'{cd_prefix} && git status',
-            "speaking_start": "Executing task: checking git status, sir.",
+            "command": "git status --short",
+            "speaking_start": "",
             "speaking_progress": "",
-            "speaking_response": "Task completed successfully, sir.",
+            "speaking_response": "",
         }
     else:
         return {
@@ -431,6 +536,11 @@ def sanitize_json(raw_text: str, transcript: str) -> dict:
 
     req_type = str(data.get("type", "general_qa")).strip()
     cmd = str(data.get("command", "")).strip()
+
+    # STRICT OVERRIDE: Force git_query if the transcript is an informational git question
+    if is_git_query(transcript):
+        req_type = "git_query"
+        cmd = resolve_git_query_command(transcript)
     cd_prefix = f'cd "{PROJECT_ROOT}"'
 
     # STRICT OVERRIDE: Force antigravity_task if any trigger keywords are in the transcript
@@ -486,6 +596,21 @@ def sanitize_json(raw_text: str, transcript: str) -> dict:
             "command": cmd,
             "speaking_start": start,
             "speaking_progress": prog,
+            "speaking_response": speaking_resp,
+        }
+
+    if req_type == "git_query":
+        if not cmd:
+            cmd = resolve_git_query_command(transcript)
+        speaking_resp = execute_git_query(cmd, transcript)
+        return {
+            "type": "git_query",
+            "action": "",
+            "target_file": "",
+            "task_description": f"Answering git query: {transcript}",
+            "command": cmd,
+            "speaking_start": "",
+            "speaking_progress": "",
             "speaking_response": speaking_resp,
         }
 
@@ -587,6 +712,10 @@ def route_intent(transcript: str) -> dict:
 
     # IMMEDIATE ROUTING: Antigravity task regex/classifier match routes immediately and prevents fallback to GENERAL_QA
     if is_antigravity_intent(cleaned):
+        return build_default_intent(cleaned)
+
+    # IMMEDIATE ROUTING: Git informational queries (MUST come before branch creation check)
+    if is_git_query(cleaned):
         return build_default_intent(cleaned)
 
     # IMMEDIATE ROUTING: Git branch creation & remote push

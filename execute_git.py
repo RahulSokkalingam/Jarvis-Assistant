@@ -90,9 +90,9 @@ def main():
         proc = subprocess.run([sys.executable, agent_script], cwd=PROJECT_ROOT)
         sys.exit(proc.returncode)
 
-    # Bypass if query is General QA or Codebase QA
-    if data.get("type") in ["general_qa", "codebase_qa"]:
-        print("[execute_git.py] QA query detected; bypassing Git CLI.")
+    # Bypass if query is General QA, Codebase QA, or Git Query
+    if data.get("type") in ["general_qa", "codebase_qa", "git_query"]:
+        print("[execute_git.py] QA/Query detected; bypassing Git CLI write actions.")
         sys.exit(0)
 
     command = data.get("command", "git status").strip()
