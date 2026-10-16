@@ -24,7 +24,7 @@ if os.path.exists(GH_PATH) and GH_PATH not in os.environ.get("PATH", ""):
 
 def handle_delete_branch(target_repo: str, branch_name: str) -> tuple[int, str]:
     """Deletes branch locally and on remote GitHub origin."""
-    branch = branch_name.strip()
+    branch = branch_name.strip(".-/ \t\r\n")
     if not branch:
         return 1, "Branch name is empty"
     if branch in ["main", "master"]:
@@ -55,7 +55,7 @@ def handle_delete_branch(target_repo: str, branch_name: str) -> tuple[int, str]:
 
 def handle_create_branch(target_repo: str, branch_name: str) -> tuple[int, str]:
     """Robustly checks out/creates a branch and pushes it to GitHub origin."""
-    branch = branch_name.strip()
+    branch = branch_name.strip(".-/ \t\r\n")
     if not branch:
         return 1, "Branch name is empty"
     print(f"[execute_git.py] Creating/switching to branch '{branch}'...")

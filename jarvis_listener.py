@@ -199,12 +199,26 @@ def run_autonomous_pipeline(audio_path: str):
 
             # Step 4: Execute Git operation
             print("[Jarvis Pipeline] Step 3: Executing Git CLI operation...")
-            subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "execute_git.py")], cwd=PROJECT_ROOT)
+            git_proc = subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "execute_git.py")], cwd=PROJECT_ROOT)
 
-            # Step 5: Announce completion
-            done_phrase = spk_resp or "Task completed successfully, sir."
-            print(f"[Jarvis Pipeline] Announcing completion: {done_phrase}")
-            subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), done_phrase], cwd=PROJECT_ROOT)
+            # Step 5: Announce completion or error
+            if git_proc.returncode == 0:
+                done_phrase = spk_resp or "Task completed successfully, sir."
+                print(f"[Jarvis Pipeline] Announcing completion: {done_phrase}")
+                subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), done_phrase], cwd=PROJECT_ROOT)
+            else:
+                err_phrase = "Git operation could not be completed, sir."
+                try:
+                    status_path = os.path.join(PROJECT_ROOT, "last_status.txt")
+                    if os.path.exists(status_path):
+                        with open(status_path, "r", encoding="utf-8") as sf:
+                            st = sf.read().strip()
+                            if "[GIT ERROR]" in st:
+                                err_phrase = f"Git error: {st.replace('[GIT ERROR]', '').strip()[:80]}, sir."
+                except Exception:
+                    pass
+                print(f"[Jarvis Pipeline] Announcing failure: {err_phrase}")
+                subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), err_phrase], cwd=PROJECT_ROOT)
 
         elif itype == "antigravity_task":
             start_phrase = spk_start or "On it, sir. Delegating task to Antigravity Agent."

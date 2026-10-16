@@ -202,10 +202,16 @@ def extract_branch_name(transcript: str) -> str:
 
     # Clean trailing conversational filler words
     raw = re.sub(r'\b(?:please|sir|in|and|push|to github|now|for me|from github)\b.*$', '', raw, flags=re.IGNORECASE).strip()
+    # Strip trailing punctuation (e.g. Whisper sentence-ending periods)
+    raw = raw.rstrip('.!?,;: ')
     # Replace spaces with hyphens (valid git branch naming)
-    sanitized = re.sub(r'\s+', '-', raw).strip('-')
+    sanitized = re.sub(r'\s+', '-', raw)
     # Remove any characters illegal in git branch names
     sanitized = re.sub(r'[^a-zA-Z0-9_\-\.\/]', '', sanitized).lower()
+    # Strip leading/trailing dots, slashes, and hyphens (strictly illegal in Git ref format)
+    sanitized = sanitized.strip('.-/')
+    sanitized = re.sub(r'\.{2,}', '.', sanitized)
+    sanitized = re.sub(r'/{2,}', '/', sanitized)
     return sanitized if sanitized else "feature-branch"
 
 def check_python_syntax(filepath: str) -> tuple[bool, str, int | None, str]:
