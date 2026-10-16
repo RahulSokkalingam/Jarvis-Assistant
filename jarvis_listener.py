@@ -138,8 +138,9 @@ def run_autonomous_pipeline(audio_path: str):
     4. Executes validated action (Git command / Antigravity task)
     5. Speaks completion announcement (e.g. "Task completed successfully, sir." / direct spoken answer)
     """
-    # Notify n8n in background if n8n is running
-    threading.Thread(target=dispatch_to_n8n, args=(audio_path,), daemon=True).start()
+    # Avoid duplicate execution: the local autonomous pipeline handles the entire lifecycle
+    if os.getenv("DISPATCH_TO_N8N", "false").lower() == "true":
+        threading.Thread(target=dispatch_to_n8n, args=(audio_path,), daemon=True).start()
 
     try:
         # Step 1: Transcribe audio

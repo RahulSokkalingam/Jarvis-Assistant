@@ -9,6 +9,7 @@ auto-injects GitHub CLI path, and skips execution for general QA queries.
 import sys
 import os
 import json
+import re
 import subprocess
 from dotenv import load_dotenv
 
@@ -20,6 +21,28 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 GH_PATH = r"C:\Program Files\GitHub CLI"
 if os.path.exists(GH_PATH) and GH_PATH not in os.environ.get("PATH", ""):
     os.environ["PATH"] = GH_PATH + os.pathsep + os.environ.get("PATH", "")
+
+def handle_create_branch(target_repo: str, branch_name: str) -> tuple[int, str]:
+    """Robustly checks out/creates a branch and pushes it to GitHub origin."""
+    branch = branch_name.strip()
+    if not branch:
+        return 1, "Branch name is empty"
+    print(f"[execute_git.py] Creating/switching to branch '{branch}'...")
+    res = subprocess.run(["git", "checkout", "-b", branch], cwd=target_repo, capture_output=True, text=True)
+    if res.returncode != 0:
+        print(f"[execute_git.py] Notice on checkout -b: {res.stderr.strip()}; trying git checkout {branch}...")
+        res2 = subprocess.run(["git", "checkout", branch], cwd=target_repo, capture_output=True, text=True)
+        if res2.returncode != 0:
+            err = res2.stderr.strip() or res.stderr.strip()
+            return res2.returncode, f"Failed to checkout branch: {err}"
+
+    print(f"[execute_git.py] Pushing branch '{branch}' to origin...")
+    push_res = subprocess.run(["git", "push", "-u", "origin", branch], cwd=target_repo, capture_output=True, text=True)
+    if push_res.returncode != 0:
+        err = push_res.stderr.strip() or push_res.stdout.strip()
+        return push_res.returncode, f"Failed to push branch to GitHub: {err}"
+
+    return 0, f"Successfully created and pushed branch '{branch}' to GitHub"
 
 def handle_commit_and_push(target_repo: str) -> tuple[int, str]:
     """Robustly stages, commits, and pushes to GitHub with accurate branch detection and syncing."""
@@ -95,6 +118,7 @@ def main():
         print("[execute_git.py] QA/Query detected; bypassing Git CLI write actions.")
         sys.exit(0)
 
+    action = str(data.get("action", "")).lower()
     command = data.get("command", "git status").strip()
     task_desc = data.get("task_description", "").lower()
     target_repo = os.getenv("TARGET_REPO_PATH", PROJECT_ROOT).strip()
@@ -105,8 +129,28 @@ def main():
 
     status_file = os.path.join(PROJECT_ROOT, "last_status.txt")
 
-    # If task is commit and push, use dedicated robust handler
-    if "push" in command or "push" in task_desc or "commit" in task_desc:
+    # 1. Dedicated Handler for Branch Creation & Push
+    if action == "create_branch" or "checkout -b" in command or ("branch" in task_desc and ("create" in task_desc or "make" in task_desc)):
+        m = re.search(r'checkout\s+-b\s+([^\s&|]+)', command)
+        if m:
+            bname = m.group(1).strip()
+        else:
+            m2 = re.search(r'branch\s+([a-zA-Z0-9_\-\.\/]+)', task_desc)
+            bname = m2.group(1).strip() if m2 else "feature-branch"
+        print(f"[Jarvis Executing]: Robust Branch Creation '{bname}' in '{target_repo}'")
+        retcode, out_msg = handle_create_branch(target_repo, bname)
+        print(f"[execute_git.py] {out_msg} (Exit code: {retcode})")
+        if retcode != 0:
+            with open(status_file, "w", encoding="utf-8") as f:
+                f.write(f"[GIT ERROR] {out_msg}")
+            sys.exit(retcode)
+        else:
+            with open(status_file, "w", encoding="utf-8") as f:
+                f.write(f"[GIT SUCCESS] {data.get('speaking_response', f'Branch {bname} created and pushed.')}")
+            sys.exit(0)
+
+    # 2. Dedicated Handler for Commit & Push
+    elif "push" in command or "push" in task_desc or "commit" in task_desc:
         print(f"[Jarvis Executing]: Robust Git Commit & Push in '{target_repo}'")
         retcode, out_msg = handle_commit_and_push(target_repo)
         print(f"[execute_git.py] {out_msg} (Exit code: {retcode})")

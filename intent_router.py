@@ -148,7 +148,41 @@ def is_branch_creation(transcript: str) -> bool:
     # First, exclude any question patterns about branches
     if is_git_query(transcript):
         return False
-    return bool(re.search(r'\b(?:create|make|checkout\s+-b|new)\s+branch\b', t))
+    patterns = [
+        r'\b(?:create|make|checkout\s+-b|new)\s+(?:a\s+)?branch\b',
+        r'\bbranch\s+(?:called|named)\b',
+        r'\bcreate\s+branch\b',
+    ]
+    return any(bool(re.search(p, t)) for p in patterns)
+
+def extract_branch_name(transcript: str) -> str:
+    """Extracts and sanitizes git branch name from user speech.
+    e.g. 'create a branch called jarvis test' -> 'jarvis-test'
+         'create branch feature' -> 'feature'
+    """
+    t = transcript.strip()
+    raw = ""
+    m = re.search(r'branch\s+(?:called|named|as)\s+([a-zA-Z0-9_\-\.\/\s]+)', t, re.IGNORECASE)
+    if m:
+        raw = m.group(1).strip()
+    if not raw:
+        m2 = re.search(r'(?:create|make|checkout|switch to|new)\s+(?:a\s+)?branch\s+([a-zA-Z0-9_\-\.\/\s]+)', t, re.IGNORECASE)
+        if m2:
+            raw = m2.group(1).strip()
+    if not raw:
+        m3 = re.search(r'(?:called|named)\s+([a-zA-Z0-9_\-\.\/\s]+)', t, re.IGNORECASE)
+        if m3:
+            raw = m3.group(1).strip()
+    if not raw:
+        raw = "feature-branch"
+
+    # Clean trailing conversational filler words
+    raw = re.sub(r'\b(?:please|sir|in|and|push|to github|now|for me)\b.*$', '', raw, flags=re.IGNORECASE).strip()
+    # Replace spaces with hyphens (valid git branch naming)
+    sanitized = re.sub(r'\s+', '-', raw).strip('-')
+    # Remove any characters illegal in git branch names
+    sanitized = re.sub(r'[^a-zA-Z0-9_\-\.\/]', '', sanitized).lower()
+    return sanitized if sanitized else "feature-branch"
 
 def check_python_syntax(filepath: str) -> tuple[bool, str, int | None, str]:
     """Runs actual `python -m py_compile <filepath>` to capture real compilation status."""
@@ -187,22 +221,6 @@ def check_python_syntax(filepath: str) -> tuple[bool, str, int | None, str]:
         return False, err_output, line_num, error_details
     except Exception as e:
         return False, str(e), None, str(e)
-
-def extract_branch_name(transcript: str) -> str:
-    """Extracts git branch name from user speech (e.g. 'create branch feature' -> 'feature')."""
-    t = transcript.strip()
-    m = re.search(r'(?:create|make|checkout|switch to|new)\s+branch\s+([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
-    if m:
-        return m.group(1).strip()
-    m2 = re.search(r'branch\s+([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
-    if m2:
-        val = m2.group(1).strip()
-        if val.lower() not in ["and", "to", "called", "named"]:
-            return val
-    m3 = re.search(r'(?:called|named)\s+([a-zA-Z0-9_\-\.\/]+)', t, re.IGNORECASE)
-    if m3:
-        return m3.group(1).strip()
-    return "feature-branch"
 
 def extract_target_file(transcript: str) -> str:
     """Extracts target python filename from transcript or matches known codebase files."""
