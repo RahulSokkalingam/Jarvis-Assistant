@@ -22,6 +22,37 @@ GH_PATH = r"C:\Program Files\GitHub CLI"
 if os.path.exists(GH_PATH) and GH_PATH not in os.environ.get("PATH", ""):
     os.environ["PATH"] = GH_PATH + os.pathsep + os.environ.get("PATH", "")
 
+def handle_delete_branch(target_repo: str, branch_name: str) -> tuple[int, str]:
+    """Deletes branch locally and on remote GitHub origin."""
+    branch = branch_name.strip()
+    if not branch:
+        return 1, "Branch name is empty"
+    if branch in ["main", "master"]:
+        return 1, f"Cannot delete protected default branch '{branch}'"
+
+    # 1. If currently on the branch to be deleted, switch to main first
+    curr_br = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=target_repo, capture_output=True, text=True).stdout.strip()
+    if curr_br == branch:
+        print(f"[execute_git.py] Currently on '{branch}'; switching to 'main' first...")
+        subprocess.run(["git", "checkout", "main"], cwd=target_repo, capture_output=True)
+
+    # 2. Delete local branch
+    print(f"[execute_git.py] Deleting local branch '{branch}'...")
+    del_local = subprocess.run(["git", "branch", "-D", branch], cwd=target_repo, capture_output=True, text=True)
+    local_msg = del_local.stdout.strip() or del_local.stderr.strip()
+
+    # 3. Delete remote branch on GitHub origin
+    print(f"[execute_git.py] Deleting remote branch '{branch}' on origin...")
+    del_remote = subprocess.run(["git", "push", "origin", "--delete", branch], cwd=target_repo, capture_output=True, text=True)
+    remote_msg = del_remote.stdout.strip() or del_remote.stderr.strip()
+
+    # 4. Prune remote tracking references
+    subprocess.run(["git", "fetch", "--prune", "origin"], cwd=target_repo, capture_output=True)
+
+    if del_local.returncode == 0 or del_remote.returncode == 0:
+        return 0, f"Branch '{branch}' deleted successfully"
+    return 1, f"Failed to delete branch '{branch}': {local_msg} {remote_msg}"
+
 def handle_create_branch(target_repo: str, branch_name: str) -> tuple[int, str]:
     """Robustly checks out/creates a branch and pushes it to GitHub origin."""
     branch = branch_name.strip()
@@ -129,8 +160,28 @@ def main():
 
     status_file = os.path.join(PROJECT_ROOT, "last_status.txt")
 
-    # 1. Dedicated Handler for Branch Creation & Push
-    if action == "create_branch" or "checkout -b" in command or ("branch" in task_desc and ("create" in task_desc or "make" in task_desc)):
+    # 1. Dedicated Handler for Branch Deletion
+    if action == "delete_branch" or "branch -d" in command.lower() or ("branch" in task_desc and ("delete" in task_desc or "remove" in task_desc)):
+        m = re.search(r'branch\s+-[dD]\s+([^\s&|]+)', command)
+        if m:
+            bname = m.group(1).strip()
+        else:
+            m2 = re.search(r'branch\s+(?:called\s+|named\s+)?([a-zA-Z0-9_\-\.\/]+)', task_desc)
+            bname = m2.group(1).strip() if m2 else "feature-branch"
+        print(f"[Jarvis Executing]: Robust Branch Deletion '{bname}' in '{target_repo}'")
+        retcode, out_msg = handle_delete_branch(target_repo, bname)
+        print(f"[execute_git.py] {out_msg} (Exit code: {retcode})")
+        if retcode != 0:
+            with open(status_file, "w", encoding="utf-8") as f:
+                f.write(f"[GIT ERROR] {out_msg}")
+            sys.exit(retcode)
+        else:
+            with open(status_file, "w", encoding="utf-8") as f:
+                f.write(f"[GIT SUCCESS] {data.get('speaking_response', f'Branch {bname} deleted.')}")
+            sys.exit(0)
+
+    # 2. Dedicated Handler for Branch Creation & Push
+    elif action == "create_branch" or "checkout -b" in command or ("branch" in task_desc and ("create" in task_desc or "make" in task_desc)):
         m = re.search(r'checkout\s+-b\s+([^\s&|]+)', command)
         if m:
             bname = m.group(1).strip()

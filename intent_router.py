@@ -109,6 +109,13 @@ def sync_to_clipboard(text: str) -> bool:
 def is_antigravity_intent(transcript: str) -> bool:
     """Detects whether transcript requires Antigravity code generation, bug fixing, or HUD styling."""
     t = transcript.lower()
+    # Explicit exclusions: Git queries, branch operations, commits, pushes are NEVER Antigravity
+    if is_git_query(transcript) or is_branch_creation(transcript) or is_branch_deletion(transcript):
+        return False
+    if any(w in t for w in ["branch", "commit", "push", "git status", "git log", "git remote", "repo"]):
+        if "antigravity" not in t:
+            return False
+
     # Explicit regex patterns for critical trigger phrases
     patterns = [
         r'\bbug\s*fix\b',
@@ -142,11 +149,22 @@ def is_git_query(transcript: str) -> bool:
             return True
     return False
 
-def is_branch_creation(transcript: str) -> bool:
-    """Detects git branch creation requests. Excludes query/question patterns."""
+def is_branch_deletion(transcript: str) -> bool:
+    """Detects git branch deletion requests."""
     t = transcript.lower()
-    # First, exclude any question patterns about branches
     if is_git_query(transcript):
+        return False
+    patterns = [
+        r'\b(?:delete|remove|drop|destroy)\s+(?:the\s+)?(?:a\s+)?branch\b',
+        r'\bbranch\s+(?:delete|deletion|remove|removal)\b',
+    ]
+    return any(bool(re.search(p, t)) for p in patterns)
+
+def is_branch_creation(transcript: str) -> bool:
+    """Detects git branch creation requests. Excludes query/question and deletion patterns."""
+    t = transcript.lower()
+    # First, exclude any question or deletion patterns
+    if is_git_query(transcript) or is_branch_deletion(transcript):
         return False
     patterns = [
         r'\b(?:create|make|checkout\s+-b|new)\s+(?:a\s+)?branch\b',
@@ -158,13 +176,19 @@ def is_branch_creation(transcript: str) -> bool:
 def extract_branch_name(transcript: str) -> str:
     """Extracts and sanitizes git branch name from user speech.
     e.g. 'create a branch called jarvis test' -> 'jarvis-test'
+         'delete branch jarvis-test' -> 'jarvis-test'
          'create branch feature' -> 'feature'
     """
     t = transcript.strip()
     raw = ""
-    m = re.search(r'branch\s+(?:called|named|as)\s+([a-zA-Z0-9_\-\.\/\s]+)', t, re.IGNORECASE)
-    if m:
-        raw = m.group(1).strip()
+    # Check deletion commands first
+    m_del = re.search(r'(?:delete|remove|drop|destroy)\s+(?:the\s+)?(?:a\s+)?branch\s+(?:called\s+|named\s+)?([a-zA-Z0-9_\-\.\/\s]+)', t, re.IGNORECASE)
+    if m_del:
+        raw = m_del.group(1).strip()
+    if not raw:
+        m = re.search(r'branch\s+(?:called|named|as)\s+([a-zA-Z0-9_\-\.\/\s]+)', t, re.IGNORECASE)
+        if m:
+            raw = m.group(1).strip()
     if not raw:
         m2 = re.search(r'(?:create|make|checkout|switch to|new)\s+(?:a\s+)?branch\s+([a-zA-Z0-9_\-\.\/\s]+)', t, re.IGNORECASE)
         if m2:
@@ -177,7 +201,7 @@ def extract_branch_name(transcript: str) -> str:
         raw = "feature-branch"
 
     # Clean trailing conversational filler words
-    raw = re.sub(r'\b(?:please|sir|in|and|push|to github|now|for me)\b.*$', '', raw, flags=re.IGNORECASE).strip()
+    raw = re.sub(r'\b(?:please|sir|in|and|push|to github|now|for me|from github)\b.*$', '', raw, flags=re.IGNORECASE).strip()
     # Replace spaces with hyphens (valid git branch naming)
     sanitized = re.sub(r'\s+', '-', raw).strip('-')
     # Remove any characters illegal in git branch names
@@ -380,8 +404,12 @@ def execute_git_query(git_cmd: str, transcript: str) -> str:
                 return "You are currently not on any branch, sir."
             return f"You are currently on the {out} branch, sir."
         elif "branch" in git_cmd:
+            # Prune deleted remote branches first so list reflects current GitHub state
+            subprocess.run(["git", "fetch", "--prune", "origin"], cwd=target_repo, capture_output=True)
+            fresh_proc = subprocess.run(["git", "branch", "-a"], cwd=target_repo, capture_output=True, text=True)
+            fresh_out = fresh_proc.stdout.strip() or out
             branches = set()
-            for line in out.splitlines():
+            for line in fresh_out.splitlines():
                 clean_line = line.strip().lstrip("*").strip()
                 if not clean_line or "->" in clean_line:
                     continue
@@ -466,7 +494,23 @@ def build_default_intent(transcript: str) -> dict:
             "speaking_response": speaking_resp,
         }
 
-    # 3. Branch Creation & Push Intent (Strict command: git checkout -b <branch> && git push -u origin <branch>)
+    # 3. Branch Deletion Intent (git branch -D <branch> && git push origin --delete <branch>)
+    if is_branch_deletion(transcript):
+        bname = extract_branch_name(transcript)
+        return {
+            "type": "git_action",
+            "action": "delete_branch",
+            "target_file": "",
+            "task_description": f"Delete branch {bname}",
+            "command": (
+                f'{cd_prefix} && git branch -D {bname} && git push origin --delete {bname}'
+            ),
+            "speaking_start": f"Deleting branch {bname} locally and from GitHub, sir.",
+            "speaking_progress": "",
+            "speaking_response": f"Branch {bname} has been deleted successfully, sir.",
+        }
+
+    # 4. Branch Creation & Push Intent (Strict command: git checkout -b <branch> && git push -u origin <branch>)
     if is_branch_creation(transcript):
         bname = extract_branch_name(transcript)
         return {
@@ -743,16 +787,20 @@ def route_intent(transcript: str) -> dict:
     if not cleaned or len(cleaned) < 2:
         return build_default_intent(cleaned)
 
-    # IMMEDIATE ROUTING: Antigravity task regex/classifier match routes immediately and prevents fallback to GENERAL_QA
-    if is_antigravity_intent(cleaned):
-        return build_default_intent(cleaned)
-
-    # IMMEDIATE ROUTING: Git informational queries (MUST come before branch creation check)
+    # 1. IMMEDIATE ROUTING: Git informational queries
     if is_git_query(cleaned):
         return build_default_intent(cleaned)
 
-    # IMMEDIATE ROUTING: Git branch creation & remote push
+    # 2. IMMEDIATE ROUTING: Git branch deletion
+    if is_branch_deletion(cleaned):
+        return build_default_intent(cleaned)
+
+    # 3. IMMEDIATE ROUTING: Git branch creation & remote push
     if is_branch_creation(cleaned):
+        return build_default_intent(cleaned)
+
+    # 4. IMMEDIATE ROUTING: Antigravity task regex/classifier match
+    if is_antigravity_intent(cleaned):
         return build_default_intent(cleaned)
 
     # 1. Primary: Groq Cloud API
