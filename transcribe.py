@@ -19,7 +19,8 @@ warnings.filterwarnings("ignore")
 
 load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
-TRANSCRIPT_CACHE_FILE = "last_transcript.txt"
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+TRANSCRIPT_CACHE_FILE = os.path.join(PROJECT_ROOT, "last_transcript.txt")
 
 def sanitize_transcript(text: str) -> str:
     """Removes irregular newlines, control characters, and excess whitespace."""

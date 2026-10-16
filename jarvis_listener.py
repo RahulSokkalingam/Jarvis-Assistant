@@ -18,6 +18,8 @@ import requests
 import numpy as np
 import pyaudio
 import pygame
+import threading
+import json
 from dotenv import load_dotenv
 
 # Suppress Pygame banner
@@ -63,6 +65,8 @@ def play_instant_wake_acknowledgment():
                 pygame.mixer.init(frequency=24000, buffer=1024)
             pygame.mixer.music.load(ON_IT_AUDIO)
             pygame.mixer.music.play()
+            while pygame.mixer.music.get_busy():
+                time.sleep(0.02)
         except Exception as e:
             print(f"[Jarvis] Local wake playback notice: {e}", file=sys.stderr)
 
@@ -115,18 +119,106 @@ def save_wav(raw_bytes: bytes, audio: pyaudio.PyAudio, filepath: str):
 
 def dispatch_to_n8n(audio_path: str):
     """Sends recorded command to n8n webhook."""
-    print(f"[Jarvis] Firing webhook payload to: {N8N_WEBHOOK_URL}")
+    if not N8N_WEBHOOK_URL:
+        return
     try:
         with open(audio_path, "rb") as f:
             files = {"file": (os.path.basename(audio_path), f, "audio/wav")}
-            resp = requests.post(N8N_WEBHOOK_URL, files=files, timeout=45)
-            print(f"[Jarvis] n8n response: HTTP {resp.status_code}")
-            if resp.status_code >= 400:
-                print(f"[Jarvis] n8n webhook notification: {resp.text}", file=sys.stderr)
-    except requests.exceptions.ConnectionError:
-        print(f"[Jarvis] Connection refused at {N8N_WEBHOOK_URL}. Is n8n active?", file=sys.stderr)
+            resp = requests.post(N8N_WEBHOOK_URL, files=files, timeout=10)
+            print(f"[Jarvis] n8n webhook response: HTTP {resp.status_code}")
+    except Exception:
+        pass
+
+def run_autonomous_pipeline(audio_path: str):
+    """
+    Direct, ultra-responsive autonomous execution pipeline:
+    1. Transcribes audio dynamically with Groq Whisper -> writes to last_transcript.txt (HUD updates immediately!)
+    2. Routes intent dynamically with Groq LLM -> writes to last_intent.json
+    3. Speaks task acknowledgment (e.g. "On it, sir. Committing and pushing changes...")
+    4. Executes validated action (Git command / Antigravity task)
+    5. Speaks completion announcement (e.g. "Task completed successfully, sir." / direct spoken answer)
+    """
+    # Notify n8n in background if n8n is running
+    threading.Thread(target=dispatch_to_n8n, args=(audio_path,), daemon=True).start()
+
+    try:
+        # Step 1: Transcribe audio
+        print("\n[Jarvis Pipeline] Step 1: Transcribing audio with Groq Whisper...")
+        t_proc = subprocess.run(
+            [sys.executable, os.path.join(PROJECT_ROOT, "transcribe.py"), audio_path],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True
+        )
+        transcript = t_proc.stdout.strip()
+        if not transcript:
+            print("[Jarvis Pipeline] No speech detected in audio capture.")
+            return
+
+        print(f"[Jarvis Pipeline] Voice Transcript: \"{transcript}\"")
+        transcript_file = os.path.join(PROJECT_ROOT, "last_transcript.txt")
+        try:
+            with open(transcript_file, "w", encoding="utf-8") as f:
+                f.write(transcript)
+        except Exception:
+            pass
+
+        # Step 2: Route intent dynamically with Groq LLM
+        print("[Jarvis Pipeline] Step 2: Routing intent with Groq LLM...")
+        subprocess.run(
+            [sys.executable, os.path.join(PROJECT_ROOT, "intent_router.py")],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True
+        )
+
+        intent_file = os.path.join(PROJECT_ROOT, "last_intent.json")
+        if not os.path.exists(intent_file):
+            print("[Jarvis Pipeline] Error: last_intent.json not found.", file=sys.stderr)
+            return
+
+        with open(intent_file, "r", encoding="utf-8") as f:
+            intent = json.load(f)
+
+        itype = intent.get("type", "general_qa")
+        spk_start = intent.get("speaking_start", "")
+        spk_resp = intent.get("speaking_response", "")
+
+        # Step 3: Handle Action vs QA
+        if itype == "git_action":
+            # Acknowledge task start: "On it, sir..."
+            start_phrase = spk_start or "On it, sir. Committing and pushing your changes."
+            print(f"[Jarvis Pipeline] Announcing start: {start_phrase}")
+            subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), start_phrase], cwd=PROJECT_ROOT)
+
+            # Step 4: Execute Git operation
+            print("[Jarvis Pipeline] Step 3: Executing Git CLI operation...")
+            subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "execute_git.py")], cwd=PROJECT_ROOT)
+
+            # Step 5: Announce completion
+            done_phrase = spk_resp or "Task completed successfully, sir."
+            print(f"[Jarvis Pipeline] Announcing completion: {done_phrase}")
+            subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), done_phrase], cwd=PROJECT_ROOT)
+
+        elif itype == "antigravity_task":
+            start_phrase = spk_start or "On it, sir. Delegating task to Antigravity Agent."
+            print(f"[Jarvis Pipeline] Announcing start: {start_phrase}")
+            subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), start_phrase], cwd=PROJECT_ROOT)
+
+            print("[Jarvis Pipeline] Step 3: Executing Antigravity Agent Bridge...")
+            subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "execute_agent.py")], cwd=PROJECT_ROOT)
+
+            done_phrase = spk_resp or "Task completed, sir."
+            print(f"[Jarvis Pipeline] Announcing completion: {done_phrase}")
+            subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), done_phrase], cwd=PROJECT_ROOT)
+
+        else:  # general_qa or codebase_qa
+            if spk_resp:
+                print(f"[Jarvis Pipeline] Spoken QA Answer: {spk_resp}")
+                subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), spk_resp], cwd=PROJECT_ROOT)
+
     except Exception as e:
-        print(f"[Jarvis] Webhook dispatch error: {e}", file=sys.stderr)
+        print(f"[Jarvis Pipeline] Error during autonomous pipeline execution: {e}", file=sys.stderr)
 
 def main():
     import openwakeword
@@ -196,8 +288,13 @@ def main():
                 audio_bytes = record_dynamic_command(stream, vad_engine)
                 save_wav(audio_bytes, audio, OUTPUT_AUDIO_FILE)
 
-                # 3. Fire to n8n webhook
-                dispatch_to_n8n(OUTPUT_AUDIO_FILE)
+                # 3. Launch autonomous pipeline in background thread
+                pipeline_thread = threading.Thread(
+                    target=run_autonomous_pipeline,
+                    args=(OUTPUT_AUDIO_FILE,),
+                    daemon=True
+                )
+                pipeline_thread.start()
 
                 # Reset internal buffers
                 oww_model.reset()
