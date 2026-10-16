@@ -377,10 +377,12 @@ Examples:
 def resolve_git_query_command(transcript: str) -> str:
     """Maps informational git questions to the correct git CLI command."""
     t = transcript.lower()
-    if any(w in t for w in ["all branch", "list branch", "show branch", "what branch", "branches in", "how many branch", "available branch"]):
-        return "git branch -a"
-    if any(w in t for w in ["branch", "which branch", "what branch", "current branch"]):
+    # Check current branch specific queries first
+    if any(w in t for w in ["which branch am", "what branch am", "current branch", "am i on", "are we on", "which branch are"]):
         return "git branch --show-current"
+    # General branch listing queries
+    if any(w in t for w in ["all branch", "list branch", "show branch", "what branch", "branches in", "how many branch", "available branch", "the branch", "branches", "branch list"]):
+        return "git branch -a"
     if any(w in t for w in ["status", "changes", "uncommitted", "modified"]):
         return "git status --short"
     if any(w in t for w in ["log", "commit history", "last commit", "recent commit"]):
@@ -410,18 +412,38 @@ def execute_git_query(git_cmd: str, transcript: str) -> str:
                 return "You are currently not on any branch, sir."
             return f"You are currently on the {out} branch, sir."
         elif "branch" in git_cmd:
-            # Prune deleted remote branches first so list reflects current GitHub state
+            # 1. Prune deleted remote branches from origin
             subprocess.run(["git", "fetch", "--prune", "origin"], cwd=target_repo, capture_output=True)
-            fresh_proc = subprocess.run(["git", "branch", "-a"], cwd=target_repo, capture_output=True, text=True)
-            fresh_out = fresh_proc.stdout.strip() or out
+
+            # 2. Automatically delete dead local branches whose upstream was deleted on GitHub (marked [gone])
+            vv_proc = subprocess.run(["git", "branch", "-vv"], cwd=target_repo, capture_output=True, text=True)
+            for vv_line in vv_proc.stdout.splitlines():
+                if ": gone]" in vv_line:
+                    gone_b = vv_line.strip().lstrip("*").split()[0]
+                    if gone_b not in ["main", "master"]:
+                        if vv_line.strip().startswith("*"):
+                            subprocess.run(["git", "checkout", "main"], cwd=target_repo, capture_output=True)
+                        subprocess.run(["git", "branch", "-D", gone_b], cwd=target_repo, capture_output=True)
+
+            # 3. Query remote branches from origin (true repository branches on GitHub)
+            r_proc = subprocess.run(["git", "branch", "-r"], cwd=target_repo, capture_output=True, text=True)
             branches = set()
-            for line in fresh_out.splitlines():
-                clean_line = line.strip().lstrip("*").strip()
-                if not clean_line or "->" in clean_line:
+            for line in r_proc.stdout.splitlines():
+                clean = line.strip()
+                if not clean or "->" in clean:
                     continue
-                if clean_line.startswith("remotes/origin/"):
-                    clean_line = clean_line.replace("remotes/origin/", "")
-                branches.add(clean_line)
+                if clean.startswith("origin/"):
+                    clean = clean.replace("origin/", "")
+                branches.add(clean)
+
+            # If no remote branches found (offline repo), fallback to local active branches
+            if not branches:
+                l_proc = subprocess.run(["git", "branch"], cwd=target_repo, capture_output=True, text=True)
+                for line in l_proc.stdout.splitlines():
+                    clean = line.strip().lstrip("*").strip()
+                    if clean:
+                        branches.add(clean)
+
             branch_list = sorted(branches)
             if not branch_list:
                 return "No branches found in repository, sir."
