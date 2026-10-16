@@ -22,4 +22,19 @@ Thumbs.db
 .vscode/
 .idea/
 node_modules/
+
+# Audio temporary files & recordings
 temp_speech_*.mp3
+temp_speech.mp3
+recorded_command.wav
+*.wav
+
+# Runtime caches, logs & states
+last_transcript.txt
+last_intent.json
+last_status.txt
+codebase_cache.json
+antigravity_task.json
+antigravity_log.txt
+antigravity_prompt.txt
+speech_queue.txt

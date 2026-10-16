@@ -48,22 +48,22 @@ sequenceDiagram
 
 ## Component Architecture
 
-1. [`jarvis_listener.py`](file:///c:/Users/gansk/OneDrive/Desktop/Jarvis%20github/jarvis_listener.py):
+1. [`jarvis_listener.py`](jarvis_listener.py):
    - **0ms Instant Wake Acknowledgment**: Plays pre-rendered `on_it.mp3` directly via `pygame.mixer` inside the listener process.
    - **Dynamic Silero VAD**: Automatically stops recording within 350ms of trailing silence.
    - **Multipart Webhook Dispatch**: Posts to `http://localhost:5678/webhook/jarvis-git`.
-2. [`intent_router.py`](file:///c:/Users/gansk/OneDrive/Desktop/Jarvis%20github/intent_router.py):
+2. [`intent_router.py`](intent_router.py):
    - **Codebase Context Scanner**: Crawls and caches key files (`.py`, `.bat`, `.json`, `.md`) with a 120s TTL cache.
    - **Tri-Mode Classifier**: Distinguishes `codebase_qa` vs `git_action` vs `general_qa`.
    - **Fast Voice Responses**: Enforces `max_tokens: 150` for crisp, natural 2–3 sentence spoken answers.
-3. [`speak.py`](file:///c:/Users/gansk/OneDrive/Desktop/Jarvis%20github/speak.py):
+3. [`speak.py`](speak.py):
    - Pre-rendered static clips: `on_it.mp3` and `listening.mp3`.
    - Pre-warmed 24kHz `pygame.mixer` player for sub-50ms dynamic playback.
    - Reuses single `temp_speech.mp3` cache file.
-4. [`execute_git.py`](file:///c:/Users/gansk/OneDrive/Desktop/Jarvis%20github/execute_git.py):
+4. [`execute_git.py`](execute_git.py):
    - Injects GitHub CLI into PATH.
    - Automatically bypasses Git execution for Q&A queries.
-5. [`workflows/jarvis_workflow.json`](file:///c:/Users/gansk/OneDrive/Desktop/Jarvis%20github/workflows/jarvis_workflow.json):
+5. [`workflows/jarvis_workflow.json`](workflows/jarvis_workflow.json):
    - 9-node workflow with conditional IF node branching Git actions vs direct Q&A speech routing.
 
 ---
