@@ -329,9 +329,9 @@ Examples:
 def resolve_git_query_command(transcript: str) -> str:
     """Maps informational git questions to the correct git CLI command."""
     t = transcript.lower()
-    if any(w in t for w in ["branch", "which branch", "what branch"]):
-        if any(w in t for w in ["all", "list", "show all", "every"]):
-            return "git branch -a"
+    if any(w in t for w in ["all branch", "list branch", "show branch", "what branch", "branches in", "how many branch", "available branch"]):
+        return "git branch -a"
+    if any(w in t for w in ["branch", "which branch", "what branch", "current branch"]):
         return "git branch --show-current"
     if any(w in t for w in ["status", "changes", "uncommitted", "modified"]):
         return "git status --short"
@@ -357,10 +357,25 @@ def execute_git_query(git_cmd: str, transcript: str) -> str:
         res = subprocess.run(git_cmd.split(), cwd=target_repo, capture_output=True, text=True)
         out = (res.stdout.strip() or res.stderr.strip() or "")
 
-        if "branch" in git_cmd:
+        if "show-current" in git_cmd:
             if not out:
                 return "You are currently not on any branch, sir."
             return f"You are currently on the {out} branch, sir."
+        elif "branch" in git_cmd:
+            branches = set()
+            for line in out.splitlines():
+                clean_line = line.strip().lstrip("*").strip()
+                if not clean_line or "->" in clean_line:
+                    continue
+                if clean_line.startswith("remotes/origin/"):
+                    clean_line = clean_line.replace("remotes/origin/", "")
+                branches.add(clean_line)
+            branch_list = sorted(branches)
+            if not branch_list:
+                return "No branches found in repository, sir."
+            if len(branch_list) == 1:
+                return f"There is 1 branch: {branch_list[0]}, sir."
+            return f"The branches in your repository are: {', '.join(branch_list)}, sir."
         elif "status" in git_cmd:
             if not out:
                 return "Your working tree is clean with no uncommitted changes, sir."
