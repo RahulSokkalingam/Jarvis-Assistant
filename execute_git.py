@@ -15,7 +15,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+from jarvis_config import JARVIS_CORE_DIR, get_target_repo
+
+PROJECT_ROOT = JARVIS_CORE_DIR
 
 # Ensure GitHub CLI and Git are in PATH
 GH_PATH = r"C:\Program Files\GitHub CLI"
@@ -152,12 +154,7 @@ def main():
     action = str(data.get("action", "")).lower()
     command = data.get("command", "git status").strip()
     task_desc = data.get("task_description", "").lower()
-    target_repo = os.getenv("TARGET_REPO_PATH", PROJECT_ROOT).strip()
-    if target_repo == ".":
-        target_repo = PROJECT_ROOT
-    else:
-        target_repo = os.path.abspath(target_repo)
-
+    target_repo = get_target_repo()
     status_file = os.path.join(PROJECT_ROOT, "last_status.txt")
 
     # 1. Dedicated Handler for Branch Deletion

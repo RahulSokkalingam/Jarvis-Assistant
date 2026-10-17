@@ -1,5 +1,4 @@
 @echo off
-title JARVIS COMMAND CENTER - MAIN HUD
-cd /d "%~dp0"
-echo Launching Jarvis Cybernetic Sci-Fi HUD...
-call python.bat jarvis_hud.py
+title JARVIS HUD - [JARVIS-VOICE-ASSISTANT]
+set TARGET_REPO_PATH=%~dp0
+call python.bat jarvis_hud.py --project "%~dp0"

@@ -29,21 +29,32 @@ load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__)).replace("/", "\\")
-TRANSCRIPT_CACHE_FILE = os.path.join(PROJECT_ROOT, "last_transcript.txt")
-INTENT_CACHE_FILE = os.path.join(PROJECT_ROOT, "last_intent.json")
-STATUS_CACHE_FILE = os.path.join(PROJECT_ROOT, "last_status.txt")
-CODEBASE_CACHE_FILE = os.path.join(PROJECT_ROOT, "codebase_cache.json")
-ANTIGRAVITY_TASK_FILE = os.path.join(PROJECT_ROOT, "antigravity_task.json")
-ANTIGRAVITY_PROMPT_FILE = os.path.join(PROJECT_ROOT, "antigravity_prompt.txt")
+from jarvis_config import (
+    JARVIS_CORE_DIR,
+    get_target_repo,
+    get_project_name,
+    get_current_git_branch,
+    is_n8n_online,
+)
+
+PROJECT_ROOT = JARVIS_CORE_DIR
+TRANSCRIPT_CACHE_FILE = os.path.join(JARVIS_CORE_DIR, "last_transcript.txt")
+INTENT_CACHE_FILE = os.path.join(JARVIS_CORE_DIR, "last_intent.json")
+STATUS_CACHE_FILE = os.path.join(JARVIS_CORE_DIR, "last_status.txt")
+CODEBASE_CACHE_FILE = os.path.join(JARVIS_CORE_DIR, "codebase_cache.json")
+ANTIGRAVITY_TASK_FILE = os.path.join(JARVIS_CORE_DIR, "antigravity_task.json")
+ANTIGRAVITY_PROMPT_FILE = os.path.join(JARVIS_CORE_DIR, "antigravity_prompt.txt")
 
 def get_project_context(force_refresh: bool = False) -> str:
     """Scans and caches key project source files to answer codebase questions with zero delay."""
-    if not force_refresh and os.path.exists(CODEBASE_CACHE_FILE):
+    target_repo = get_target_repo()
+    cache_file = os.path.join(target_repo, ".jarvis", "codebase_cache.json") if target_repo != JARVIS_CORE_DIR else CODEBASE_CACHE_FILE
+
+    if not force_refresh and os.path.exists(cache_file):
         try:
-            mtime = os.path.getmtime(CODEBASE_CACHE_FILE)
+            mtime = os.path.getmtime(cache_file)
             if time.time() - mtime < 120:
-                with open(CODEBASE_CACHE_FILE, "r", encoding="utf-8") as f:
+                with open(cache_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     cached_text = data.get("context", "")
                     if cached_text:
@@ -52,31 +63,54 @@ def get_project_context(force_refresh: bool = False) -> str:
             pass
 
     context_parts = []
-    core_files = [
-        "jarvis_listener.py",
-        "speak.py",
-        "transcribe.py",
-        "intent_router.py",
-        "execute_git.py",
-        "workflows/jarvis_workflow.json",
-        "README.md",
-    ]
+    if target_repo != JARVIS_CORE_DIR:
+        candidate_files = []
+        for root, dirs, files in os.walk(target_repo):
+            dirs[:] = [d for d in dirs if d not in [".git", "node_modules", "venv", ".venv", "__pycache__", ".jarvis"]]
+            for file in files:
+                ext = os.path.splitext(file)[1].lower()
+                if ext in [".py", ".js", ".ts", ".jsx", ".tsx", ".html", ".css", ".json", ".md", ".txt", ".go", ".rs"]:
+                    full_p = os.path.join(root, file)
+                    rel_p = os.path.relpath(full_p, target_repo)
+                    candidate_files.append((rel_p, full_p))
+                    if len(candidate_files) >= 12:
+                        break
+            if len(candidate_files) >= 12:
+                break
 
-    for relpath in core_files:
-        filepath = os.path.join(PROJECT_ROOT, relpath)
-        if os.path.exists(filepath):
+        for relpath, filepath in candidate_files:
             try:
                 with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()
-                # Extract first 25 lines (docstrings, imports, core parameters)
                 snippet = "".join(lines[:25]).strip()
                 context_parts.append(f"[{relpath}]\n{snippet}\n")
             except Exception:
                 continue
+    else:
+        core_files = [
+            "jarvis_listener.py",
+            "speak.py",
+            "transcribe.py",
+            "intent_router.py",
+            "execute_git.py",
+            "workflows/jarvis_workflow.json",
+            "README.md",
+        ]
+        for relpath in core_files:
+            filepath = os.path.join(JARVIS_CORE_DIR, relpath)
+            if os.path.exists(filepath):
+                try:
+                    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+                        lines = f.readlines()
+                    snippet = "".join(lines[:25]).strip()
+                    context_parts.append(f"[{relpath}]\n{snippet}\n")
+                except Exception:
+                    continue
 
     summary = "\n".join(context_parts)
     try:
-        with open(CODEBASE_CACHE_FILE, "w", encoding="utf-8") as f:
+        os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+        with open(cache_file, "w", encoding="utf-8") as f:
             json.dump({"context": summary, "timestamp": time.time()}, f)
     except Exception:
         pass
@@ -275,11 +309,13 @@ def extract_target_file(transcript: str) -> str:
     return "jarvis_listener.py"
 
 def build_system_prompt() -> str:
+    target_repo = get_target_repo()
     codebase_context = get_project_context()
+    proj_name = get_project_name(target_repo)
     return f"""You are Jarvis, a brilliant AI systems assistant and autonomous coding engineer.
 You automate Git commands, dispatch code generation and bug fixes to Antigravity, and answer questions about this codebase or general topics.
 
-=== CODEBASE DIGEST ({PROJECT_ROOT}) ===
+=== CODEBASE DIGEST ({proj_name.upper()} @ {target_repo}) ===
 {codebase_context}
 ========================================
 
@@ -300,7 +336,7 @@ Classify the user's input into one of five types:
    - speaking_response: A direct spoken answer describing what was found.
 4. "git_action": An INSTRUCTION to perform a Git/GitHub WRITE operation (push, commit, create branch, pr, merge, delete).
    - CRITICAL: Only classify as git_action when the user is COMMANDING an action, not asking a question.
-   - If user asks to create or make a branch: command MUST be: cd "{PROJECT_ROOT}" && (git checkout -b <branch> 2>nul || git checkout <branch>) && git push -u origin <branch>
+   - If user asks to create or make a branch: command MUST be: cd "{target_repo}" && (git checkout -b <branch> 2>nul || git checkout <branch>) && git push -u origin <branch>
 5. "general_qa": General knowledge question, reasoning, conversation, or math.
 
 CRITICAL DISAMBIGUATION RULES:
@@ -326,7 +362,7 @@ Strict Output Schema:
 
 Rules:
 - For "antigravity_task":
-  - command: "cd \"{PROJECT_ROOT}\" && python execute_agent.py antigravity_task.json"
+  - command: "cd \"{target_repo}\" && python execute_agent.py antigravity_task.json"
   - speaking_start: "Delegating task to Antigravity Agent, sir."
 - For "codebase_qa":
   - Use the codebase digest above to give an accurate, crisp, 2-sentence conversational answer.
@@ -337,11 +373,11 @@ Rules:
   - speaking_response: will be filled dynamically with the command output
 - For "git_action":
   - For branch creation (e.g. "create branch feature"):
-    command: cd "{PROJECT_ROOT}" && (git checkout -b <branch> 2>nul || git checkout <branch>) && git push -u origin <branch>
+    command: cd "{target_repo}" && (git checkout -b <branch> 2>nul || git checkout <branch>) && git push -u origin <branch>
     speaking_start: "Creating and pushing branch <branch> to GitHub, sir."
     speaking_response: "Branch <branch> has been created and pushed to GitHub, sir."
   - For commit and push:
-    command: cd "{PROJECT_ROOT}" && git init && git add . && (git commit -m "<msg>" || echo "No changes to commit") && (git push || gh repo create "Jarvis-Voice-Assistant" --public --source=. --remote=origin --push)
+    command: cd "{target_repo}" && git init && git add . && (git commit -m "<msg>" || echo "No changes to commit") && (git push || gh repo create "{proj_name}" --public --source=. --remote=origin --push)
     speaking_start: "Executing task: committing and pushing your changes, sir."
     speaking_response: "Task completed successfully, sir."
 - For "general_qa":
@@ -355,7 +391,7 @@ Examples:
   "action": "create_branch",
   "target_file": "",
   "task_description": "Create and push branch feature",
-  "command": "cd \\"{PROJECT_ROOT}\\" && (git checkout -b feature 2>nul || git checkout feature) && git push -u origin feature",
+  "command": "cd \\"{target_repo}\\" && (git checkout -b feature 2>nul || git checkout feature) && git push -u origin feature",
   "speaking_start": "Creating and pushing branch feature to GitHub, sir.",
   "speaking_progress": "",
   "speaking_response": "Branch feature has been created and pushed to GitHub, sir."
@@ -367,7 +403,7 @@ Examples:
   "action": "bug_fix",
   "target_file": "speak.py",
   "task_description": "Diagnose and resolve audio playback and edge-tts synthesis locking bug in speak.py",
-  "command": "cd \\"{PROJECT_ROOT}\\" && python execute_agent.py antigravity_task.json",
+  "command": "cd \\"{target_repo}\\" && python execute_agent.py antigravity_task.json",
   "speaking_start": "Delegating task to Antigravity Agent, sir.",
   "speaking_progress": "Antigravity is reading speak.py and applying code patches...",
   "speaking_response": "Task completed, sir. Antigravity has resolved the issue in speak.py."
@@ -398,11 +434,7 @@ def resolve_git_query_command(transcript: str) -> str:
 def execute_git_query(git_cmd: str, transcript: str) -> str:
     """Executes a git query command and formats a concise spoken answer."""
     try:
-        target_repo = os.getenv("TARGET_REPO_PATH", PROJECT_ROOT).strip()
-        if target_repo == ".":
-            target_repo = PROJECT_ROOT
-        else:
-            target_repo = os.path.abspath(target_repo)
+        target_repo = get_target_repo()
 
         res = subprocess.run(git_cmd.split(), cwd=target_repo, capture_output=True, text=True)
         out = (res.stdout.strip() or res.stderr.strip() or "")

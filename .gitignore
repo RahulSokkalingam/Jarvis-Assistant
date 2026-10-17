@@ -33,8 +33,10 @@ recorded_command.wav
 last_transcript.txt
 last_intent.json
 last_status.txt
+active_project.txt
 codebase_cache.json
 antigravity_task.json
 antigravity_log.txt
 antigravity_prompt.txt
 speech_queue.txt
+.jarvis/

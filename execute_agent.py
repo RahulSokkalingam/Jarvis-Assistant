@@ -16,7 +16,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+from jarvis_config import JARVIS_CORE_DIR, get_target_repo
+
+PROJECT_ROOT = JARVIS_CORE_DIR
 TASK_FILE = os.path.join(PROJECT_ROOT, "antigravity_task.json")
 LOG_FILE = os.path.join(PROJECT_ROOT, "antigravity_log.txt")
 STATUS_FILE = os.path.join(PROJECT_ROOT, "last_status.txt")
@@ -110,7 +112,8 @@ def main():
     speaking_prog = task.get("speaking_progress", f"Antigravity is reading {target_rel} and applying code patches...")
     speaking_resp = task.get("speaking_response", f"Task completed, sir. Antigravity has resolved the issue in {target_rel}.")
 
-    target_path = os.path.join(PROJECT_ROOT, target_rel)
+    target_repo = get_target_repo()
+    target_path = os.path.join(target_repo, target_rel)
 
     # 1. Announce progress
     append_hud_log(f"[ANTIGRAVITY] Initialized bridge for: {target_rel} (Action: {action})")

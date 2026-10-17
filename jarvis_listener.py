@@ -27,9 +27,20 @@ os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 
 # Load environment configuration
 load_dotenv()
+
+from jarvis_config import (
+    JARVIS_CORE_DIR,
+    get_target_repo,
+    set_active_project,
+    get_project_name,
+    is_n8n_online,
+    ensure_n8n_running,
+    get_current_git_branch,
+)
+
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "http://localhost:5678/webhook/jarvis-git").strip()
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = JARVIS_CORE_DIR
 OUTPUT_AUDIO_FILE = os.path.join(PROJECT_ROOT, "recorded_command.wav")
 ON_IT_AUDIO = os.path.join(PROJECT_ROOT, "on_it.mp3")
 
@@ -51,9 +62,19 @@ def launch_hud_interface():
     """Seamlessly launches the Jarvis Sci-Fi HUD in a non-blocking background subprocess."""
     hud_script = os.path.join(PROJECT_ROOT, "jarvis_hud.py")
     if os.path.exists(hud_script):
+        target_dir = get_target_repo()
+        hud_env = os.environ.copy()
+        hud_env["TARGET_REPO_PATH"] = target_dir
         try:
-            subprocess.Popen([sys.executable, hud_script], cwd=PROJECT_ROOT)
-            print("[Jarvis] Sci-Fi HUD Desktop Interface launched in background.")
+            DETACHED_FLAGS = 0x00000008 | 0x00000200
+            subprocess.Popen(
+                [sys.executable, hud_script, "--project", target_dir],
+                cwd=target_dir,
+                env=hud_env,
+                creationflags=DETACHED_FLAGS,
+                close_fds=True
+            )
+            print(f"[Jarvis] Sci-Fi HUD Desktop Interface launched for [{get_project_name(target_dir).upper()}].")
         except Exception as e:
             print(f"[Jarvis] Notice: Could not launch HUD window: {e}", file=sys.stderr)
 
@@ -245,12 +266,23 @@ def main():
     from openwakeword.model import Model
     from openwakeword.vad import VAD
 
+    # Parse target project argument if provided
+    for i, a in enumerate(sys.argv):
+        if a == "--project" and i + 1 < len(sys.argv):
+            set_active_project(sys.argv[i + 1])
+            break
+
+    active_repo = get_target_repo()
+    proj_name = get_project_name(active_repo)
+
     print("==================================================")
     print("   JARVIS ULTRA-LOW LATENCY CONVERSATIONAL AGENT  ")
+    print(f"   Active Project     : [{proj_name.upper()}]")
+    print(f"   Target Workspace   : {active_repo}")
     print(f"   Wake Sensitivity   : Threshold {THRESHOLD} (High)")
     print(f"   Local Acknowledgment: 0ms Pre-rendered Audio")
     print(f"   VAD Silence Cutoff : {SILENCE_TIMEOUT_MS}ms")
-    print(f"   Webhook Target     : {N8N_WEBHOOK_URL}")
+    print(f"   n8n Automation     : {'ONLINE' if is_n8n_online() else 'STANDBY'} ({N8N_WEBHOOK_URL})")
     print("==================================================")
 
     # Launch Sci-Fi Desktop HUD Interface in background

@@ -68,12 +68,40 @@ sequenceDiagram
 
 ---
 
-## Running Jarvis
+## Global CLI & Multi-Project Support
+
+Jarvis can be initialized and run in **any project folder or workspace** inside Antigravity IDE:
 
 ```powershell
-# 1. Start n8n Server (Terminal 1)
+# Initialize Jarvis in the current folder (or pass a target directory):
+# - Verifies/initializes Git repository
+# - Scaffolds .jarvis/config.json and local batch shortcuts
+# - Verifies background n8n server (starts it automatically if stopped)
+# - Opens the Cybernetic Sci-Fi HUD desktop window for that project
+jarvis init [project_path]
+
+# Start both HUD and Voice Listener for the active project
+jarvis start [project_path]
+
+# Open just the Cybernetic Sci-Fi HUD window
+jarvis hud [project_path]
+
+# Check background n8n automation status
+jarvis n8n
+
+# Check current active project, Git branch, and pipeline telemetry
+jarvis status
+```
+
+### Running Locally inside Core Repository
+
+```powershell
+# 1. Start n8n Workflow Server in background
 .\start_n8n.bat
 
-# 2. Start Jarvis Listener (Terminal 2)
+# 2. Launch Cybernetic HUD Window
+.\start_hud.bat
+
+# 3. Start Zero-Latency Voice Listener
 .\start_jarvis.bat
 ```

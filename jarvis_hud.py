@@ -47,12 +47,20 @@ from PyQt6.QtWidgets import (
     QFrame,
 )
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-TRANSCRIPT_FILE = os.path.join(PROJECT_ROOT, "last_transcript.txt")
-INTENT_FILE = os.path.join(PROJECT_ROOT, "last_intent.json")
-STATUS_FILE = os.path.join(PROJECT_ROOT, "last_status.txt")
-ANTIGRAVITY_TASK_FILE = os.path.join(PROJECT_ROOT, "antigravity_task.json")
-ANTIGRAVITY_LOG_FILE = os.path.join(PROJECT_ROOT, "antigravity_log.txt")
+from jarvis_config import (
+    JARVIS_CORE_DIR,
+    get_target_repo,
+    get_project_name,
+    is_n8n_online,
+    get_current_git_branch,
+)
+
+PROJECT_ROOT = JARVIS_CORE_DIR
+TRANSCRIPT_FILE = os.path.join(JARVIS_CORE_DIR, "last_transcript.txt")
+INTENT_FILE = os.path.join(JARVIS_CORE_DIR, "last_intent.json")
+STATUS_FILE = os.path.join(JARVIS_CORE_DIR, "last_status.txt")
+ANTIGRAVITY_TASK_FILE = os.path.join(JARVIS_CORE_DIR, "antigravity_task.json")
+ANTIGRAVITY_LOG_FILE = os.path.join(JARVIS_CORE_DIR, "antigravity_log.txt")
 
 # Cyber Sci-Fi Color Palette
 COLOR_BG = QColor(11, 11, 30, 245)
@@ -304,6 +312,19 @@ class JarvisHUD(QMainWindow):
             }
         """)
 
+        # Target project & telemetry context
+        target_override = target_repo
+        if target_override is None:
+            for i, a in enumerate(sys.argv):
+                if a == "--project" and i + 1 < len(sys.argv):
+                    target_override = sys.argv[i + 1]
+                    break
+        self.target_repo = get_target_repo(target_override)
+        self.project_name = get_project_name(self.target_repo)
+        self.current_branch = get_current_git_branch(self.target_repo)
+        self.n8n_online = is_n8n_online()
+        self.last_status_check = time.time()
+
         self.last_transcript_raw = ""
         self.last_response_raw = ""
         self.typewriter_text = ""
@@ -312,6 +333,7 @@ class JarvisHUD(QMainWindow):
         self.last_ag_log_size = 0
         self.last_ag_task_status = ""
 
+        self.setWindowTitle(f"JARVIS COMMAND CENTER - [{self.project_name.upper()}]")
         self.init_ui()
 
         # Timers
@@ -345,7 +367,7 @@ class JarvisHUD(QMainWindow):
         self.badge_sysok.setStyleSheet("color: #00e1ff; background: rgba(0, 225, 255, 25); border: 1px solid #00e1ff; padding: 3px 8px; border-radius: 2px;")
         header_layout.addWidget(self.badge_sysok)
 
-        title_label = QLabel("JARVIS COMMAND CENTER - MAIN HUD")
+        title_label = QLabel(f"JARVIS COMMAND CENTER - [{self.project_name.upper()}]")
         title_label.setFont(QFont("Consolas", 13, QFont.Weight.Bold))
         title_label.setStyleSheet("color: #00e1ff; letter-spacing: 2px; padding-left: 8px;")
         header_layout.addWidget(title_label)
@@ -356,6 +378,11 @@ class JarvisHUD(QMainWindow):
         self.badge_audio.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
         self.badge_audio.setStyleSheet("color: #8ca0b8; background: rgba(140, 160, 184, 20); border: 1px solid #8ca0b8; padding: 3px 8px; border-radius: 2px;")
         header_layout.addWidget(self.badge_audio)
+
+        self.badge_n8n = QLabel("[N8N: ONLINE]" if self.n8n_online else "[N8N: STANDBY]")
+        self.badge_n8n.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
+        self.badge_n8n.setStyleSheet("color: #00ff88; background: rgba(0, 255, 136, 25); border: 1px solid #00ff88; padding: 3px 8px; border-radius: 2px;" if self.n8n_online else "color: #ff9d00; background: rgba(255, 157, 0, 25); border: 1px solid #ff9d00; padding: 3px 8px; border-radius: 2px;")
+        header_layout.addWidget(self.badge_n8n)
 
         self.badge_groq = QLabel("[GROQ: ONLINE]")
         self.badge_groq.setFont(QFont("Consolas", 10, QFont.Weight.Bold))
@@ -372,25 +399,35 @@ class JarvisHUD(QMainWindow):
         self.panel_sys = SciFiFrame("1. SYSTEM STATUS")
         sys_layout = QVBoxLayout(self.panel_sys)
         sys_layout.setContentsMargins(10, 30, 10, 10)
-        sys_layout.setSpacing(6)
+        sys_layout.setSpacing(5)
+
+        self.lbl_proj_info = QLabel(f"PROJECT      : {self.project_name.upper()}")
+        self.lbl_proj_info.setFont(QFont("Consolas", 10, QFont.Weight.Bold))
+        self.lbl_proj_info.setStyleSheet("color: #00e1ff;")
+        sys_layout.addWidget(self.lbl_proj_info)
+
+        self.lbl_branch = QLabel(f"GIT BRANCH   : {self.current_branch}")
+        self.lbl_branch.setFont(QFont("Consolas", 10, QFont.Weight.Bold))
+        self.lbl_branch.setStyleSheet("color: #00ff88;")
+        sys_layout.addWidget(self.lbl_branch)
+
+        self.lbl_n8n_pipe = QLabel(f"N8N ENGINE   : {'[ONLINE]' if self.n8n_online else '[STANDBY]'}")
+        self.lbl_n8n_pipe.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
+        self.lbl_n8n_pipe.setStyleSheet("color: #00ff88;" if self.n8n_online else "color: #ff9d00;")
+        sys_layout.addWidget(self.lbl_n8n_pipe)
 
         self.lbl_cpu = QLabel("CPU USAGE    : 0.0%")
-        self.lbl_cpu.setFont(QFont("Consolas", 10, QFont.Weight.Bold))
+        self.lbl_cpu.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
         sys_layout.addWidget(self.lbl_cpu)
 
         self.lbl_ram = QLabel("MEMORY ALLOC : 0.0 MB")
-        self.lbl_ram.setFont(QFont("Consolas", 10, QFont.Weight.Bold))
+        self.lbl_ram.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
         sys_layout.addWidget(self.lbl_ram)
 
         self.lbl_audio = QLabel("AUDIO INPUT  : 16kHz PCM (PyAudio Active)")
-        self.lbl_audio.setFont(QFont("Consolas", 9))
+        self.lbl_audio.setFont(QFont("Consolas", 8))
         self.lbl_audio.setStyleSheet("color: #8ca0b8;")
         sys_layout.addWidget(self.lbl_audio)
-
-        self.lbl_pipe = QLabel("PIPELINE     : Webhook Engine Standby")
-        self.lbl_pipe.setFont(QFont("Consolas", 9))
-        self.lbl_pipe.setStyleSheet("color: #00ff88;")
-        sys_layout.addWidget(self.lbl_pipe)
 
         # Animated signal waveform
         self.waveform = WaveformVisualizer()
@@ -463,7 +500,9 @@ class JarvisHUD(QMainWindow):
 
         # Initial console greeting
         self.log_console("SYSTEM BOOT COMPLETED: Jarvis HUD Initialized.")
-        self.log_console(f"TARGET REPO: {PROJECT_ROOT}")
+        self.log_console(f"ACTIVE WORKSPACE: {self.target_repo}")
+        self.log_console(f"ACTIVE GIT BRANCH: {self.current_branch}")
+        self.log_console(f"N8N AUTOMATION: {'ONLINE (http://localhost:5678)' if self.n8n_online else 'STANDBY'}")
 
     def log_console(self, msg: str, color: str = "#00ff88"):
         timestamp = time.strftime("[%H:%M:%S]")
@@ -489,6 +528,17 @@ class JarvisHUD(QMainWindow):
             self.lbl_response.setText(f"JARVIS > {self.typewriter_text}")
 
     def refresh_live_data(self):
+        # Periodically refresh Git branch & n8n telemetry
+        if time.time() - self.last_status_check > 2.0:
+            self.last_status_check = time.time()
+            self.current_branch = get_current_git_branch(self.target_repo)
+            self.n8n_online = is_n8n_online()
+            self.lbl_branch.setText(f"GIT BRANCH   : {self.current_branch}")
+            self.lbl_n8n_pipe.setText(f"N8N ENGINE   : {'[ONLINE]' if self.n8n_online else '[STANDBY]'}")
+            self.lbl_n8n_pipe.setStyleSheet("color: #00ff88;" if self.n8n_online else "color: #ff9d00;")
+            self.badge_n8n.setText("[N8N: ONLINE]" if self.n8n_online else "[N8N: STANDBY]")
+            self.badge_n8n.setStyleSheet("color: #00ff88; background: rgba(0, 255, 136, 25); border: 1px solid #00ff88; padding: 3px 8px; border-radius: 2px;" if self.n8n_online else "color: #ff9d00; background: rgba(255, 157, 0, 25); border: 1px solid #ff9d00; padding: 3px 8px; border-radius: 2px;")
+
         # 1. Update system resource telemetry
         if psutil:
             try:
@@ -581,8 +631,13 @@ class JarvisHUD(QMainWindow):
 
 
 def main():
+    target_repo = None
+    for i, a in enumerate(sys.argv):
+        if a == "--project" and i + 1 < len(sys.argv):
+            target_repo = sys.argv[i + 1]
+            break
     app = QApplication(sys.argv)
-    hud = JarvisHUD()
+    hud = JarvisHUD(target_repo=target_repo)
     hud.show()
     sys.exit(app.exec())
 
