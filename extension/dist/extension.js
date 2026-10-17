@@ -820,11 +820,34 @@ var HudViewProvider = class {
 
 // src/extension.ts
 var path6 = __toESM(require("path"));
+var fs5 = __toESM(require("fs"));
+var cp3 = __toESM(require("child_process"));
 var n8nService;
+function checkPythonDependencies(coreDir) {
+  cp3.exec('py -c "import PyQt6, openwakeword, edge_tts"', (err) => {
+    if (err) {
+      vscode6.window.showWarningMessage(
+        "Jarvis: Python dependencies are missing on this system. Would you like to install them now?",
+        "Install Dependencies"
+      ).then((choice) => {
+        if (choice === "Install Dependencies") {
+          vscode6.commands.executeCommand("jarvis.installDependencies");
+        }
+      });
+    }
+  });
+}
 async function activate(context) {
   console.log("[Jarvis Extension] Activating Autonomous Systems...");
   const config = vscode6.workspace.getConfiguration("jarvis");
-  const coreDir = config.get("coreDir") || "C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant";
+  const configuredDir = config.get("coreDir");
+  const bundledDir = path6.join(context.extensionPath, "python");
+  let coreDir = bundledDir;
+  if (configuredDir && fs5.existsSync(configuredDir)) {
+    coreDir = configuredDir;
+  } else if (!fs5.existsSync(bundledDir) && fs5.existsSync("C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant")) {
+    coreDir = "C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant";
+  }
   const autoStartN8n = config.get("autoStartN8n") ?? true;
   const n8nUrl = config.get("n8nUrl") || "http://localhost:5678";
   const secretManager = new SecretManager(context, coreDir);
@@ -872,6 +895,15 @@ async function activate(context) {
         `Jarvis Status: Project [${path6.basename(ws).toUpperCase()}] | n8n: ${n8nUp} | Core: ${coreDir}`
       );
     }),
+    vscode6.commands.registerCommand("jarvis.installDependencies", () => {
+      const term = vscode6.window.createTerminal({
+        name: "JARVIS SETUP",
+        iconPath: new vscode6.ThemeIcon("tools")
+      });
+      term.show();
+      const reqFile = path6.join(coreDir, "requirements.txt");
+      term.sendText(`py -m pip install -r "${reqFile}"`);
+    }),
     vscode6.commands.registerCommand("jarvis.quickMenu", async () => {
       await statusBar.showQuickMenu();
     })
@@ -882,6 +914,9 @@ async function activate(context) {
       secretManager.promptForGroqKey(false);
     }, 1200);
   }
+  setTimeout(() => {
+    checkPythonDependencies(coreDir);
+  }, 2500);
   if (autoStartN8n) {
     n8nService.startPolling(5e3);
     setTimeout(() => {

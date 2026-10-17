@@ -56,6 +56,11 @@
         "command": "jarvis.status",
         "title": "Jarvis: Show System Status Telemetry",
         "icon": "$(pulse)"
+      },
+      {
+        "command": "jarvis.installDependencies",
+        "title": "Jarvis: Install Python Dependencies",
+        "icon": "$(tools)"
       }
     ],
     "viewsContainers": {

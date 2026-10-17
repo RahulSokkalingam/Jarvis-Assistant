@@ -5,17 +5,42 @@ import { ProcessManager } from "./processManager";
 import { StatusBarManager } from "./statusBar";
 import { HudViewProvider } from "./hudViewProvider";
 import * as path from "path";
+import * as fs from "fs";
+import * as cp from "child_process";
 
 let n8nService: N8nService | undefined;
+
+function checkPythonDependencies(coreDir: string) {
+  cp.exec('py -c "import PyQt6, openwakeword, edge_tts"', (err) => {
+    if (err) {
+      vscode.window
+        .showWarningMessage(
+          "Jarvis: Python dependencies are missing on this system. Would you like to install them now?",
+          "Install Dependencies"
+        )
+        .then((choice) => {
+          if (choice === "Install Dependencies") {
+            vscode.commands.executeCommand("jarvis.installDependencies");
+          }
+        });
+    }
+  });
+}
 
 export async function activate(context: vscode.ExtensionContext) {
   console.log("[Jarvis Extension] Activating Autonomous Systems...");
 
-  // 1. Read configurations
+  // 1. Read & auto-resolve core directory (bundled or custom)
   const config = vscode.workspace.getConfiguration("jarvis");
-  const coreDir =
-    config.get<string>("coreDir") ||
-    "C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant";
+  const configuredDir = config.get<string>("coreDir");
+  const bundledDir = path.join(context.extensionPath, "python");
+  let coreDir = bundledDir;
+  if (configuredDir && fs.existsSync(configuredDir)) {
+    coreDir = configuredDir;
+  } else if (!fs.existsSync(bundledDir) && fs.existsSync("C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant")) {
+    coreDir = "C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant";
+  }
+
   const autoStartN8n = config.get<boolean>("autoStartN8n") ?? true;
   const n8nUrl = config.get<string>("n8nUrl") || "http://localhost:5678";
 
@@ -77,6 +102,16 @@ export async function activate(context: vscode.ExtensionContext) {
       );
     }),
 
+    vscode.commands.registerCommand("jarvis.installDependencies", () => {
+      const term = vscode.window.createTerminal({
+        name: "JARVIS SETUP",
+        iconPath: new vscode.ThemeIcon("tools"),
+      });
+      term.show();
+      const reqFile = path.join(coreDir, "requirements.txt");
+      term.sendText(`py -m pip install -r "${reqFile}"`);
+    }),
+
     vscode.commands.registerCommand("jarvis.quickMenu", async () => {
       await statusBar.showQuickMenu();
     })
@@ -85,13 +120,17 @@ export async function activate(context: vscode.ExtensionContext) {
   // 5. Check and prompt for Groq API Key if missing
   const groqKey = await secretManager.getGroqKey();
   if (!groqKey) {
-    // Give user a brief moment after IDE load before showing the setup modal
     setTimeout(() => {
       secretManager.promptForGroqKey(false);
     }, 1200);
   }
 
-  // 6. Start n8n automation engine if configured
+  // 6. Check Python dependencies in background
+  setTimeout(() => {
+    checkPythonDependencies(coreDir);
+  }, 2500);
+
+  // 7. Start n8n automation engine if configured
   if (autoStartN8n) {
     n8nService.startPolling(5000);
     setTimeout(() => {
