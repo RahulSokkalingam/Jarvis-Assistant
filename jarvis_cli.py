@@ -47,10 +47,10 @@ def print_banner():
 
 def init_project(target_arg: str = None):
     print_banner()
-    raw_path = target_arg if target_arg else os.getcwd()
-    target_dir = os.path.abspath(raw_path).replace("/", "\\")
+    raw_path = target_arg.strip(' \t\r\n"\'') if (target_arg and target_arg.strip(' \t\r\n"\'')) else os.getcwd()
+    target_dir = os.path.abspath(raw_path).rstrip("\\/").replace("/", "\\")
     os.makedirs(target_dir, exist_ok=True)
-    project_name = os.path.basename(target_dir.rstrip("\\/"))
+    project_name = os.path.basename(target_dir)
 
     print(f">> Initializing Jarvis for project: [{project_name.upper()}]")
     print(f">> Target Workspace: {target_dir}\n")
@@ -201,12 +201,25 @@ def manage_n8n():
 
 def uninit_project(target_arg: str = None):
     print_banner()
-    raw_path = target_arg if target_arg else os.getcwd()
-    target_dir = os.path.abspath(raw_path).replace("/", "\\")
-    project_name = os.path.basename(target_dir.rstrip("\\/"))
+    raw_path = target_arg.strip(' \t\r\n"\'') if (target_arg and target_arg.strip(' \t\r\n"\'')) else os.getcwd()
+    target_dir = os.path.abspath(raw_path).rstrip("\\/").replace("/", "\\")
+    project_name = os.path.basename(target_dir)
 
     print(f">> Uninitializing Jarvis from project: [{project_name.upper()}]")
     print(f">> Target Workspace: {target_dir}\n")
+
+    # 0. Terminate any running HUD process for this workspace
+    try:
+        import psutil
+        for proc in psutil.process_iter(['name', 'cmdline']):
+            try:
+                cmdline = proc.info.get('cmdline') or []
+                if any('jarvis_hud.py' in str(arg).lower() for arg in cmdline):
+                    proc.terminate()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+    except Exception:
+        pass
 
     # 1. Remove .jarvis metadata folder
     jarvis_meta_dir = os.path.join(target_dir, ".jarvis")
@@ -276,7 +289,7 @@ def main():
         sys.exit(0)
 
     cmd = args[0].lower().strip("-/")
-    target = args[1] if len(args) > 1 else None
+    target = " ".join(args[1:]).strip(' \t\r\n"\'') if len(args) > 1 else None
 
     if cmd == "init":
         init_project(target)

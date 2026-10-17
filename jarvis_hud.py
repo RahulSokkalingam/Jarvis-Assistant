@@ -12,14 +12,33 @@ import json
 import math
 import random
 import subprocess
+import traceback
 from typing import List
+
+# Ensure stdout/stderr are valid streams under pythonw GUI execution
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w", encoding="utf-8")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
+def exception_hook(exctype, value, tb):
+    err = "".join(traceback.format_exception(exctype, value, tb))
+    log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hud_crash.log")
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"\n--- HUD CRASH [{time.strftime('%Y-%m-%d %H:%M:%S')}] ---\n")
+            f.write(err)
+    except Exception:
+        pass
+    sys.__excepthook__(exctype, value, tb)
+
+sys.excepthook = exception_hook
 
 # Auto-install dependencies if missing
 try:
     import PyQt6
     import psutil
 except ImportError:
-    print("[Jarvis HUD] Installing missing GUI dependencies (PyQt6, psutil)...")
     subprocess.check_call([sys.executable, "-m", "pip", "install", "PyQt6", "psutil"])
     import psutil
 
@@ -639,6 +658,8 @@ def main():
     app = QApplication(sys.argv)
     hud = JarvisHUD(target_repo=target_repo)
     hud.show()
+    hud.raise_()
+    hud.activateWindow()
     sys.exit(app.exec())
 
 

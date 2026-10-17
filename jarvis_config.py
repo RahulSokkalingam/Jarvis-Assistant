@@ -25,7 +25,8 @@ def get_target_repo(cli_arg: str = None) -> str:
     """Resolves active project repository directory with rigorous fallbacks."""
     # 1. Direct CLI argument
     if cli_arg:
-        cand = os.path.abspath(cli_arg).replace("/", "\\")
+        cleaned = str(cli_arg).strip(' \t\r\n"\'').rstrip("\\/")
+        cand = os.path.abspath(cleaned).replace("/", "\\")
         if os.path.exists(cand):
             return cand
 
@@ -33,14 +34,14 @@ def get_target_repo(cli_arg: str = None) -> str:
     if os.path.exists(ACTIVE_PROJECT_FILE):
         try:
             with open(ACTIVE_PROJECT_FILE, "r", encoding="utf-8") as f:
-                path = f.read().strip()
+                path = f.read().strip(' \t\r\n"\'').rstrip("\\/")
                 if path and path != "." and os.path.exists(path):
                     return os.path.abspath(path).replace("/", "\\")
         except Exception:
             pass
 
     # 3. Explicit non-dot environment variable
-    env_target = os.getenv("TARGET_REPO_PATH", "").strip()
+    env_target = os.getenv("TARGET_REPO_PATH", "").strip(' \t\r\n"\'').rstrip("\\/")
     if env_target and env_target != "." and os.path.exists(env_target):
         return os.path.abspath(env_target).replace("/", "\\")
 
@@ -49,7 +50,8 @@ def get_target_repo(cli_arg: str = None) -> str:
 
 def set_active_project(target_dir: str) -> str:
     """Sets active project target directory and persists to active_project.txt."""
-    abs_path = os.path.abspath(target_dir).replace("/", "\\")
+    cleaned = str(target_dir).strip(' \t\r\n"\'').rstrip("\\/")
+    abs_path = os.path.abspath(cleaned).replace("/", "\\")
     os.environ["TARGET_REPO_PATH"] = abs_path
     try:
         with open(ACTIVE_PROJECT_FILE, "w", encoding="utf-8") as f:
@@ -126,8 +128,11 @@ def is_hud_running() -> bool:
     """Checks whether jarvis_hud.py process is already running on this machine."""
     try:
         import psutil
-        for proc in psutil.process_iter(['name', 'cmdline']):
+        curr_pid = os.getpid()
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
             try:
+                if proc.info.get('pid') == curr_pid:
+                    continue
                 cmdline = proc.info.get('cmdline') or []
                 if any('jarvis_hud.py' in str(arg).lower() for arg in cmdline):
                     return True
@@ -138,26 +143,26 @@ def is_hud_running() -> bool:
     return False
 
 def launch_hud(target_dir: str = None) -> bool:
-    """Reliably launches the Jarvis HUD desktop GUI window using Windows Shell."""
-    target = target_dir or get_target_repo()
+    """Reliably launches the Jarvis HUD desktop GUI window directly."""
+    raw = target_dir or get_target_repo()
+    target = os.path.abspath(str(raw).strip(' \t\r\n"\'')).rstrip("\\/").replace("/", "\\")
     if is_hud_running():
         return True
 
-    hud_script = os.path.join(JARVIS_CORE_DIR, "jarvis_hud.py")
+    hud_script = os.path.join(JARVIS_CORE_DIR, "jarvis_hud.py").replace("/", "\\")
     if not os.path.exists(hud_script):
         return False
 
     hud_env = os.environ.copy()
     hud_env["TARGET_REPO_PATH"] = target
-    proj_name = get_project_name(target).upper()
 
-    # Note: 'start "" ...' requires empty quotes as title so cmd does not treat the title as executable
-    cmd_str = f'start "" py "{hud_script}" --project "{target}"'
     try:
+        CREATE_NEW_CONSOLE = 0x00000010
         subprocess.Popen(
-            ["cmd.exe", "/c", cmd_str],
+            [sys.executable, hud_script, "--project", target],
             cwd=target,
-            env=hud_env
+            env=hud_env,
+            creationflags=CREATE_NEW_CONSOLE
         )
         time.sleep(0.5)
         return True
