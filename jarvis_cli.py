@@ -199,6 +199,60 @@ def manage_n8n():
         else:
             print("  [!] Failed to start n8n server. Run 'start_n8n.bat' manually.")
 
+def uninit_project(target_arg: str = None):
+    print_banner()
+    raw_path = target_arg if target_arg else os.getcwd()
+    target_dir = os.path.abspath(raw_path).replace("/", "\\")
+    project_name = os.path.basename(target_dir.rstrip("\\/"))
+
+    print(f">> Uninitializing Jarvis from project: [{project_name.upper()}]")
+    print(f">> Target Workspace: {target_dir}\n")
+
+    # 1. Remove .jarvis metadata folder
+    jarvis_meta_dir = os.path.join(target_dir, ".jarvis")
+    if os.path.exists(jarvis_meta_dir):
+        shutil.rmtree(jarvis_meta_dir, ignore_errors=True)
+        print("  [-] Removed .jarvis configuration directory")
+
+    # 2. Remove batch launchers
+    for bat_name in ["start_hud.bat", "start_jarvis.bat"]:
+        bat_p = os.path.join(target_dir, bat_name)
+        if os.path.exists(bat_p):
+            try:
+                os.remove(bat_p)
+                print(f"  [-] Removed {bat_name}")
+            except Exception as e:
+                print(f"  [!] Notice: Could not remove {bat_name}: {e}")
+
+    # 3. Clean .env file
+    target_env = os.path.join(target_dir, ".env")
+    if os.path.exists(target_env):
+        try:
+            with open(target_env, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()
+            jarvis_keys = ["TARGET_REPO_PATH", "GROQ_API_KEY", "N8N_WEBHOOK_URL", "DISPATCH_TO_N8N", "# Jarvis Environment"]
+            non_jarvis = [l for l in lines if not any(k in l for k in jarvis_keys)]
+            if not "".join(non_jarvis).strip():
+                os.remove(target_env)
+                print("  [-] Removed Jarvis-generated .env file")
+            else:
+                with open(target_env, "w", encoding="utf-8") as f:
+                    f.writelines(non_jarvis)
+                print("  [-] Stripped Jarvis configurations from project .env")
+        except Exception as e:
+            print(f"  [!] Notice: Could not clean .env: {e}")
+
+    # 4. If target_dir is the current active project, reset active project to Jarvis core
+    current_active = get_target_repo()
+    if os.path.abspath(current_active).lower() == os.path.abspath(target_dir).lower():
+        set_active_project(JARVIS_CORE_DIR)
+        print(f"  [*] Active project reset to Jarvis Core: {JARVIS_CORE_DIR}")
+
+    print("\n=========================================================================")
+    print(f"  JARVIS UNINITIALIZATION COMPLETE FOR [{project_name.upper()}]")
+    print(f"  - Active Workspace : {get_target_repo()}")
+    print("=========================================================================\n")
+
 def show_help():
     print_banner()
     print("""
@@ -206,6 +260,8 @@ Usage:
   jarvis init [path]    Initialize Jarvis for current or specified project folder.
                         Ensures git, n8n background server, scaffolds launchers,
                         and immediately opens the Jarvis Sci-Fi HUD window.
+  jarvis uninit [path]  Uninitialize Jarvis: removes .jarvis, batch launchers,
+                        cleans env, and resets active project to core engine.
   jarvis start [path]   Start HUD window and Voice Listener for project.
   jarvis hud [path]     Open the Cybernetic Sci-Fi HUD window for project.
   jarvis n8n            Check or start background n8n workflow server.
@@ -224,6 +280,8 @@ def main():
 
     if cmd == "init":
         init_project(target)
+    elif cmd in ["uninit", "deinit", "remove", "unlink"]:
+        uninit_project(target)
     elif cmd == "start":
         start_jarvis(target)
     elif cmd in ["hud", "gui", "window"]:

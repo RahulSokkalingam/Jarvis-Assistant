@@ -151,8 +151,8 @@ def launch_hud(target_dir: str = None) -> bool:
     hud_env["TARGET_REPO_PATH"] = target
     proj_name = get_project_name(target).upper()
 
-    # Launch directly via Windows Shell to guarantee desktop window visibility
-    cmd_str = f'start "JARVIS HUD - [{proj_name}]" py "{hud_script}" --project "{target}"'
+    # Note: 'start "" ...' requires empty quotes as title so cmd does not treat the title as executable
+    cmd_str = f'start "" py "{hud_script}" --project "{target}"'
     try:
         subprocess.Popen(
             ["cmd.exe", "/c", cmd_str],
