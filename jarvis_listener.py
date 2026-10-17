@@ -20,6 +20,7 @@ import pyaudio
 import pygame
 import threading
 import json
+import re
 from dotenv import load_dotenv
 
 # Suppress Pygame banner
