@@ -37,14 +37,31 @@ export class ProcessManager {
   }
 
   /**
+   * Dynamically resolves script location checking workspace, common subfolders, and coreDir.
+   */
+  public resolveScript(scriptName: string, ws: string): string {
+    const candidates = [
+      path.join(ws, scriptName),
+      path.join(ws, "Jarvis-Voice-Assistant", scriptName),
+      path.join(ws, "Jarvis-Assistant", scriptName),
+      path.join(this.coreDir, scriptName),
+      path.join(this.coreDir, "Jarvis-Voice-Assistant", scriptName),
+      path.join(this.coreDir, "Jarvis-Assistant", scriptName),
+    ];
+    for (const cand of candidates) {
+      if (fs.existsSync(cand)) {
+        return cand;
+      }
+    }
+    return path.join(this.coreDir, scriptName);
+  }
+
+  /**
    * Launches the Voice Listener in an integrated terminal.
    */
   public startVoiceListener(targetWorkspace?: string): void {
     const ws = targetWorkspace || this.getActiveWorkspace();
-    let listenerScript = path.join(this.coreDir, "jarvis_listener.py");
-    if (fs.existsSync(path.join(ws, "jarvis_listener.py"))) {
-      listenerScript = path.join(ws, "jarvis_listener.py");
-    }
+    const listenerScript = this.resolveScript("jarvis_listener.py", ws);
 
     // Close existing terminal if already open
     if (this.listenerTerminal) {
@@ -87,10 +104,7 @@ export class ProcessManager {
    */
   public launchDesktopHud(targetWorkspace?: string): void {
     const ws = targetWorkspace || this.getActiveWorkspace();
-    let hudScript = path.join(this.coreDir, "jarvis_hud.py");
-    if (fs.existsSync(path.join(ws, "jarvis_hud.py"))) {
-      hudScript = path.join(ws, "jarvis_hud.py");
-    }
+    const hudScript = this.resolveScript("jarvis_hud.py", ws);
 
     if (!fs.existsSync(hudScript)) {
       vscode.window.showErrorMessage(`Jarvis HUD script not found at ${hudScript}`);
@@ -125,10 +139,7 @@ export class ProcessManager {
    */
   public async initWorkspace(targetWorkspace?: string): Promise<void> {
     const ws = targetWorkspace || this.getActiveWorkspace();
-    let cliScript = path.join(this.coreDir, "jarvis_cli.py");
-    if (fs.existsSync(path.join(ws, "jarvis_cli.py"))) {
-      cliScript = path.join(ws, "jarvis_cli.py");
-    }
+    const cliScript = this.resolveScript("jarvis_cli.py", ws);
 
     const terminal = vscode.window.createTerminal({
       name: "JARVIS INIT",

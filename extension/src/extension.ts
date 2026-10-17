@@ -42,10 +42,14 @@ export async function activate(context: vscode.ExtensionContext) {
     coreDir = configuredDir;
   } else if (activeWs && (fs.existsSync(path.join(activeWs, "jarvis_listener.py")) || fs.existsSync(path.join(activeWs, "transcribe.py")))) {
     coreDir = activeWs;
-  } else if (fs.existsSync(bundledDir)) {
-    coreDir = bundledDir;
+  } else if (activeWs && fs.existsSync(path.join(activeWs, "Jarvis-Voice-Assistant", "jarvis_listener.py"))) {
+    coreDir = path.join(activeWs, "Jarvis-Voice-Assistant");
+  } else if (activeWs && fs.existsSync(path.join(activeWs, "Jarvis-Assistant", "jarvis_listener.py"))) {
+    coreDir = path.join(activeWs, "Jarvis-Assistant");
   } else if (fs.existsSync("C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant")) {
     coreDir = "C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant";
+  } else if (fs.existsSync(bundledDir)) {
+    coreDir = bundledDir;
   }
 
   const autoStartN8n = config.get<boolean>("autoStartN8n") ?? true;
