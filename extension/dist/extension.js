@@ -298,6 +298,22 @@ var ProcessManager = class {
     return this.coreDir;
   }
   /**
+   * Dynamically resolves whether to use 'py', 'python', or a configured python path.
+   */
+  getPythonCmd() {
+    const config = vscode3.workspace.getConfiguration("jarvis");
+    const configured = config.get("pythonPath");
+    if (configured && configured.trim().length > 0) {
+      return configured.trim();
+    }
+    try {
+      cp2.execSync("py --version", { stdio: "ignore" });
+      return "py";
+    } catch {
+      return "python";
+    }
+  }
+  /**
    * Launches the Voice Listener in an integrated terminal.
    */
   startVoiceListener(targetWorkspace) {
@@ -318,8 +334,9 @@ var ProcessManager = class {
       },
       iconPath: new vscode3.ThemeIcon("mic")
     });
+    const pyCmd = this.getPythonCmd();
     this.listenerTerminal.show(false);
-    this.listenerTerminal.sendText(`py "${listenerScript}" --project "${ws}"`);
+    this.listenerTerminal.sendText(`${pyCmd} "${listenerScript}" --project "${ws}"`);
     vscode3.window.showInformationMessage(
       `Jarvis Voice Assistant active for [${path3.basename(ws).toUpperCase()}]. Say 'Hey Jarvis'!`
     );
@@ -349,9 +366,10 @@ var ProcessManager = class {
       vscode3.window.showErrorMessage(`Jarvis HUD script not found at ${hudScript}`);
       return;
     }
-    const CREATE_NEW_CONSOLE = 16;
+    const pyCmd = this.getPythonCmd();
+    const executable = pyCmd === "py" ? "py.exe" : pyCmd.endsWith(".exe") ? pyCmd : "python.exe";
     try {
-      cp2.spawn("py.exe", [hudScript, "--project", ws], {
+      cp2.spawn(executable, [hudScript, "--project", ws], {
         cwd: ws,
         detached: true,
         windowsHide: false,
@@ -382,8 +400,9 @@ var ProcessManager = class {
       cwd: ws,
       iconPath: new vscode3.ThemeIcon("rocket")
     });
+    const pyCmd = this.getPythonCmd();
     terminal.show();
-    terminal.sendText(`py "${cliScript}" init "${ws}"`);
+    terminal.sendText(`${pyCmd} "${cliScript}" init "${ws}"`);
   }
 };
 
@@ -832,8 +851,9 @@ var path6 = __toESM(require("path"));
 var fs5 = __toESM(require("fs"));
 var cp3 = __toESM(require("child_process"));
 var n8nService;
-function checkPythonDependencies(coreDir) {
-  cp3.exec('py -c "import PyQt6, openwakeword, edge_tts"', (err) => {
+function checkPythonDependencies(coreDir, processManager) {
+  const pyCmd = processManager.getPythonCmd();
+  cp3.exec(`${pyCmd} -c "import PyQt6, openwakeword, edge_tts"`, (err) => {
     if (err) {
       vscode6.window.showWarningMessage(
         "Jarvis: Python dependencies are missing on this system. Would you like to install them now?",
@@ -916,7 +936,8 @@ async function activate(context) {
       });
       term.show();
       const reqFile = path6.join(coreDir, "requirements.txt");
-      term.sendText(`py -m pip install -r "${reqFile}"`);
+      const pyCmd = processManager.getPythonCmd();
+      term.sendText(`${pyCmd} -m pip install -r "${reqFile}"`);
     }),
     vscode6.commands.registerCommand("jarvis.quickMenu", async () => {
       await statusBar.showQuickMenu();
@@ -929,7 +950,7 @@ async function activate(context) {
     }, 1200);
   }
   setTimeout(() => {
-    checkPythonDependencies(coreDir);
+    checkPythonDependencies(coreDir, processManager);
   }, 2500);
   if (autoStartN8n) {
     n8nService.startPolling(5e3);

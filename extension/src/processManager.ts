@@ -20,6 +20,23 @@ export class ProcessManager {
   }
 
   /**
+   * Dynamically resolves whether to use 'py', 'python', or a configured python path.
+   */
+  public getPythonCmd(): string {
+    const config = vscode.workspace.getConfiguration("jarvis");
+    const configured = config.get<string>("pythonPath");
+    if (configured && configured.trim().length > 0) {
+      return configured.trim();
+    }
+    try {
+      cp.execSync("py --version", { stdio: "ignore" });
+      return "py";
+    } catch {
+      return "python";
+    }
+  }
+
+  /**
    * Launches the Voice Listener in an integrated terminal.
    */
   public startVoiceListener(targetWorkspace?: string): void {
@@ -44,8 +61,9 @@ export class ProcessManager {
       iconPath: new vscode.ThemeIcon("mic"),
     });
 
+    const pyCmd = this.getPythonCmd();
     this.listenerTerminal.show(false);
-    this.listenerTerminal.sendText(`py "${listenerScript}" --project "${ws}"`);
+    this.listenerTerminal.sendText(`${pyCmd} "${listenerScript}" --project "${ws}"`);
     vscode.window.showInformationMessage(
       `Jarvis Voice Assistant active for [${path.basename(ws).toUpperCase()}]. Say 'Hey Jarvis'!`
     );
@@ -79,10 +97,11 @@ export class ProcessManager {
       return;
     }
 
-    // Windows CREATE_NEW_CONSOLE = 0x00000010
-    const CREATE_NEW_CONSOLE = 0x00000010;
+    const pyCmd = this.getPythonCmd();
+    const executable = pyCmd === "py" ? "py.exe" : (pyCmd.endsWith(".exe") ? pyCmd : "python.exe");
+
     try {
-      cp.spawn("py.exe", [hudScript, "--project", ws], {
+      cp.spawn(executable, [hudScript, "--project", ws], {
         cwd: ws,
         detached: true,
         windowsHide: false,
@@ -117,7 +136,8 @@ export class ProcessManager {
       iconPath: new vscode.ThemeIcon("rocket"),
     });
 
+    const pyCmd = this.getPythonCmd();
     terminal.show();
-    terminal.sendText(`py "${cliScript}" init "${ws}"`);
+    terminal.sendText(`${pyCmd} "${cliScript}" init "${ws}"`);
   }
 }

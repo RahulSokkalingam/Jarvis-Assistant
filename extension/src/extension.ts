@@ -10,8 +10,9 @@ import * as cp from "child_process";
 
 let n8nService: N8nService | undefined;
 
-function checkPythonDependencies(coreDir: string) {
-  cp.exec('py -c "import PyQt6, openwakeword, edge_tts"', (err) => {
+function checkPythonDependencies(coreDir: string, processManager: ProcessManager) {
+  const pyCmd = processManager.getPythonCmd();
+  cp.exec(`${pyCmd} -c "import PyQt6, openwakeword, edge_tts"`, (err) => {
     if (err) {
       vscode.window
         .showWarningMessage(
@@ -115,7 +116,8 @@ export async function activate(context: vscode.ExtensionContext) {
       });
       term.show();
       const reqFile = path.join(coreDir, "requirements.txt");
-      term.sendText(`py -m pip install -r "${reqFile}"`);
+      const pyCmd = processManager.getPythonCmd();
+      term.sendText(`${pyCmd} -m pip install -r "${reqFile}"`);
     }),
 
     vscode.commands.registerCommand("jarvis.quickMenu", async () => {
@@ -133,7 +135,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // 6. Check Python dependencies in background
   setTimeout(() => {
-    checkPythonDependencies(coreDir);
+    checkPythonDependencies(coreDir, processManager);
   }, 2500);
 
   // 7. Start n8n automation engine if configured
