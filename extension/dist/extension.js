@@ -302,7 +302,10 @@ var ProcessManager = class {
    */
   startVoiceListener(targetWorkspace) {
     const ws = targetWorkspace || this.getActiveWorkspace();
-    const listenerScript = path3.join(this.coreDir, "jarvis_listener.py");
+    let listenerScript = path3.join(this.coreDir, "jarvis_listener.py");
+    if (fs3.existsSync(path3.join(ws, "jarvis_listener.py"))) {
+      listenerScript = path3.join(ws, "jarvis_listener.py");
+    }
     if (this.listenerTerminal) {
       this.listenerTerminal.dispose();
       this.listenerTerminal = null;
@@ -338,7 +341,10 @@ var ProcessManager = class {
    */
   launchDesktopHud(targetWorkspace) {
     const ws = targetWorkspace || this.getActiveWorkspace();
-    const hudScript = path3.join(this.coreDir, "jarvis_hud.py");
+    let hudScript = path3.join(this.coreDir, "jarvis_hud.py");
+    if (fs3.existsSync(path3.join(ws, "jarvis_hud.py"))) {
+      hudScript = path3.join(ws, "jarvis_hud.py");
+    }
     if (!fs3.existsSync(hudScript)) {
       vscode3.window.showErrorMessage(`Jarvis HUD script not found at ${hudScript}`);
       return;
@@ -367,7 +373,10 @@ var ProcessManager = class {
    */
   async initWorkspace(targetWorkspace) {
     const ws = targetWorkspace || this.getActiveWorkspace();
-    const cliScript = path3.join(this.coreDir, "jarvis_cli.py");
+    let cliScript = path3.join(this.coreDir, "jarvis_cli.py");
+    if (fs3.existsSync(path3.join(ws, "jarvis_cli.py"))) {
+      cliScript = path3.join(ws, "jarvis_cli.py");
+    }
     const terminal = vscode3.window.createTerminal({
       name: "JARVIS INIT",
       cwd: ws,
