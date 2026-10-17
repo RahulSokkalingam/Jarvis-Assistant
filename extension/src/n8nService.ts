@@ -88,29 +88,23 @@ export class N8nService {
     }
 
     if (!silent) {
-      vscode.window.showInformationMessage("Jarvis: Initializing background n8n workflow server...");
+      vscode.window.showInformationMessage("Jarvis: Starting n8n workflow server in terminal...");
     }
 
-    const batFile = path.join(this.coreDir, "start_n8n.bat");
-    if (!fs.existsSync(batFile)) {
-      // Fallback: spawn directly via npx
-      cp.spawn("npx.cmd", ["-y", "n8n", "start"], {
+    const existing = vscode.window.terminals.find((t) => t.name === "N8N SERVER");
+    const terminal =
+      existing ||
+      vscode.window.createTerminal({
+        name: "N8N SERVER",
         cwd: this.coreDir,
-        detached: true,
-        stdio: "ignore",
-        windowsHide: true,
-      }).unref();
-    } else {
-      cp.spawn("cmd.exe", ["/c", batFile], {
-        cwd: this.coreDir,
-        detached: true,
-        stdio: "ignore",
-        windowsHide: true,
-      }).unref();
-    }
+        iconPath: new vscode.ThemeIcon("server-process"),
+      });
 
-    // Poll for up to 8 seconds
-    for (let i = 0; i < 8; i++) {
+    terminal.show();
+    terminal.sendText("npx -y n8n start");
+
+    // Poll for up to 15 seconds
+    for (let i = 0; i < 15; i++) {
       await new Promise((r) => setTimeout(r, 1000));
       const up = await this.checkHealth();
       if (up) {
