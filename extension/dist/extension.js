@@ -1,0 +1,903 @@
+"use strict";
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// src/extension.ts
+var extension_exports = {};
+__export(extension_exports, {
+  activate: () => activate,
+  deactivate: () => deactivate
+});
+module.exports = __toCommonJS(extension_exports);
+var vscode6 = __toESM(require("vscode"));
+
+// src/secretManager.ts
+var vscode = __toESM(require("vscode"));
+var fs = __toESM(require("fs"));
+var path = __toESM(require("path"));
+var SECRET_KEY = "JARVIS_GROQ_KEY";
+var SecretManager = class {
+  constructor(context, coreDir) {
+    this.context = context;
+    this.coreDir = coreDir;
+  }
+  /**
+   * Retrieves the Groq API key from VS Code SecretStorage, falling back to core .env.
+   */
+  async getGroqKey() {
+    const secret = await this.context.secrets.get(SECRET_KEY);
+    if (secret && secret.trim().length > 5) {
+      return secret.trim();
+    }
+    const envKey = this.readKeyFromEnv(path.join(this.coreDir, ".env"));
+    if (envKey) {
+      await this.context.secrets.store(SECRET_KEY, envKey);
+      return envKey;
+    }
+    return "";
+  }
+  /**
+   * Prompts the user for their Groq API Key and persists it.
+   */
+  async promptForGroqKey(forcePrompt = false) {
+    const existing = await this.getGroqKey();
+    if (existing && !forcePrompt) {
+      return existing;
+    }
+    const input = await vscode.window.showInputBox({
+      title: "Jarvis Autonomous Assistant - Groq API Setup",
+      prompt: "Enter your Groq API Key to enable Groq Whisper Speech-to-Text and Llama Reasoning",
+      password: true,
+      ignoreFocusOut: true,
+      placeHolder: "gsk_...",
+      value: existing || "",
+      validateInput: (text) => {
+        if (!text || text.trim().length < 10) {
+          return "Please enter a valid Groq API key (starts with gsk_...)";
+        }
+        return null;
+      }
+    });
+    if (input && input.trim()) {
+      const cleanKey = input.trim();
+      await this.context.secrets.store(SECRET_KEY, cleanKey);
+      this.syncKeyToEnvFiles(cleanKey);
+      vscode.window.showInformationMessage(
+        "Jarvis: Groq API Key successfully configured and synchronized!"
+      );
+      return cleanKey;
+    }
+    if (!existing) {
+      const getFreeKey = "Get Free Groq Key";
+      vscode.window.showWarningMessage(
+        "Jarvis requires a Groq API Key for zero-latency speech recognition and reasoning.",
+        getFreeKey
+      ).then((choice) => {
+        if (choice === getFreeKey) {
+          vscode.env.openExternal(vscode.Uri.parse("https://console.groq.com/keys"));
+        }
+      });
+    }
+    return void 0;
+  }
+  /**
+   * Synchronizes the key to core .env and any open workspace .env.
+   */
+  syncKeyToEnvFiles(key) {
+    const coreEnv = path.join(this.coreDir, ".env");
+    this.updateEnvFile(coreEnv, key);
+    const wsFolders = vscode.workspace.workspaceFolders;
+    if (wsFolders) {
+      for (const folder of wsFolders) {
+        const wsEnv = path.join(folder.uri.fsPath, ".env");
+        if (fs.existsSync(wsEnv)) {
+          this.updateEnvFile(wsEnv, key);
+        }
+      }
+    }
+  }
+  readKeyFromEnv(filePath) {
+    if (!fs.existsSync(filePath)) {
+      return "";
+    }
+    try {
+      const content = fs.readFileSync(filePath, "utf-8");
+      for (const line of content.split(/\r?\n/)) {
+        if (line.startsWith("GROQ_API_KEY=")) {
+          const val = line.split("=", 2)[1].trim();
+          if (val && !val.includes("your_groq_api_key_here")) {
+            return val;
+          }
+        }
+      }
+    } catch {
+    }
+    return "";
+  }
+  updateEnvFile(filePath, key) {
+    try {
+      let content = "";
+      if (fs.existsSync(filePath)) {
+        content = fs.readFileSync(filePath, "utf-8");
+      }
+      if (content.includes("GROQ_API_KEY=")) {
+        content = content.replace(/GROQ_API_KEY=.*(?:\r?\n|$)/, `GROQ_API_KEY=${key}
+`);
+      } else {
+        content += `
+GROQ_API_KEY=${key}
+`;
+      }
+      fs.writeFileSync(filePath, content, "utf-8");
+    } catch {
+    }
+  }
+};
+
+// src/n8nService.ts
+var vscode2 = __toESM(require("vscode"));
+var http = __toESM(require("http"));
+var path2 = __toESM(require("path"));
+var cp = __toESM(require("child_process"));
+var fs2 = __toESM(require("fs"));
+var N8nService = class {
+  constructor(coreDir, n8nUrl = "http://localhost:5678") {
+    this.coreDir = coreDir;
+    this.n8nUrl = n8nUrl;
+  }
+  isOnline = false;
+  checkInterval = null;
+  onStatusChangeEmitter = new vscode2.EventEmitter();
+  onStatusChange = this.onStatusChangeEmitter.event;
+  getStatus() {
+    return this.isOnline;
+  }
+  getUrl() {
+    return this.n8nUrl;
+  }
+  startPolling(intervalMs = 4e3) {
+    this.checkHealth();
+    this.checkInterval = setInterval(() => {
+      this.checkHealth();
+    }, intervalMs);
+  }
+  stopPolling() {
+    if (this.checkInterval) {
+      clearInterval(this.checkInterval);
+      this.checkInterval = null;
+    }
+  }
+  /**
+   * Pings the n8n HTTP server endpoint.
+   */
+  async checkHealth() {
+    return new Promise((resolve) => {
+      try {
+        const parsed = new URL(this.n8nUrl);
+        const req = http.get(
+          {
+            hostname: parsed.hostname,
+            port: parsed.port || 5678,
+            path: "/",
+            timeout: 1e3
+          },
+          (res) => {
+            const online = res.statusCode !== void 0;
+            this.updateStatus(online);
+            resolve(online);
+          }
+        );
+        req.on("error", () => {
+          this.updateStatus(false);
+          resolve(false);
+        });
+        req.on("timeout", () => {
+          req.destroy();
+          this.updateStatus(false);
+          resolve(false);
+        });
+      } catch {
+        this.updateStatus(false);
+        resolve(false);
+      }
+    });
+  }
+  /**
+   * Spins up the background n8n process if not already online.
+   */
+  async ensureRunning(silent = false) {
+    const online = await this.checkHealth();
+    if (online) {
+      if (!silent) {
+        vscode2.window.showInformationMessage(`Jarvis: n8n Workflow Server is ONLINE at ${this.n8nUrl}`);
+      }
+      return true;
+    }
+    if (!silent) {
+      vscode2.window.showInformationMessage("Jarvis: Initializing background n8n workflow server...");
+    }
+    const batFile = path2.join(this.coreDir, "start_n8n.bat");
+    if (!fs2.existsSync(batFile)) {
+      cp.spawn("npx.cmd", ["-y", "n8n", "start"], {
+        cwd: this.coreDir,
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true
+      }).unref();
+    } else {
+      cp.spawn("cmd.exe", ["/c", batFile], {
+        cwd: this.coreDir,
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true
+      }).unref();
+    }
+    for (let i = 0; i < 8; i++) {
+      await new Promise((r) => setTimeout(r, 1e3));
+      const up = await this.checkHealth();
+      if (up) {
+        if (!silent) {
+          vscode2.window.showInformationMessage(`Jarvis: n8n Automation Engine is now ONLINE (${this.n8nUrl})`);
+        }
+        return true;
+      }
+    }
+    return this.isOnline;
+  }
+  updateStatus(newStatus) {
+    if (this.isOnline !== newStatus) {
+      this.isOnline = newStatus;
+      this.onStatusChangeEmitter.fire(this.isOnline);
+    }
+  }
+};
+
+// src/processManager.ts
+var vscode3 = __toESM(require("vscode"));
+var path3 = __toESM(require("path"));
+var cp2 = __toESM(require("child_process"));
+var fs3 = __toESM(require("fs"));
+var ProcessManager = class {
+  constructor(coreDir) {
+    this.coreDir = coreDir;
+  }
+  listenerTerminal = null;
+  /**
+   * Resolves the current active workspace directory.
+   */
+  getActiveWorkspace() {
+    const wsFolders = vscode3.workspace.workspaceFolders;
+    if (wsFolders && wsFolders.length > 0) {
+      return wsFolders[0].uri.fsPath;
+    }
+    return this.coreDir;
+  }
+  /**
+   * Launches the Voice Listener in an integrated terminal.
+   */
+  startVoiceListener(targetWorkspace) {
+    const ws = targetWorkspace || this.getActiveWorkspace();
+    const listenerScript = path3.join(this.coreDir, "jarvis_listener.py");
+    if (this.listenerTerminal) {
+      this.listenerTerminal.dispose();
+      this.listenerTerminal = null;
+    }
+    this.listenerTerminal = vscode3.window.createTerminal({
+      name: "JARVIS LISTENER",
+      cwd: ws,
+      env: {
+        TARGET_REPO_PATH: ws
+      },
+      iconPath: new vscode3.ThemeIcon("mic")
+    });
+    this.listenerTerminal.show(false);
+    this.listenerTerminal.sendText(`py "${listenerScript}" --project "${ws}"`);
+    vscode3.window.showInformationMessage(
+      `Jarvis Voice Assistant active for [${path3.basename(ws).toUpperCase()}]. Say 'Hey Jarvis'!`
+    );
+  }
+  /**
+   * Stops the active voice listener terminal.
+   */
+  stopVoiceListener() {
+    if (this.listenerTerminal) {
+      this.listenerTerminal.dispose();
+      this.listenerTerminal = null;
+      vscode3.window.showInformationMessage("Jarvis: Voice Listener terminated.");
+    } else {
+      vscode3.window.showInformationMessage("Jarvis: Voice Listener is not running.");
+    }
+  }
+  /**
+   * Spawns the native PyQt6 Sci-Fi holographic HUD window independently.
+   */
+  launchDesktopHud(targetWorkspace) {
+    const ws = targetWorkspace || this.getActiveWorkspace();
+    const hudScript = path3.join(this.coreDir, "jarvis_hud.py");
+    if (!fs3.existsSync(hudScript)) {
+      vscode3.window.showErrorMessage(`Jarvis HUD script not found at ${hudScript}`);
+      return;
+    }
+    const CREATE_NEW_CONSOLE = 16;
+    try {
+      cp2.spawn("py.exe", [hudScript, "--project", ws], {
+        cwd: ws,
+        detached: true,
+        windowsHide: false,
+        stdio: "ignore",
+        env: {
+          ...process.env,
+          TARGET_REPO_PATH: ws
+        }
+      }).unref();
+      vscode3.window.showInformationMessage(
+        `Jarvis: Desktop Cyber HUD launched for [${path3.basename(ws).toUpperCase()}].`
+      );
+    } catch (err) {
+      vscode3.window.showErrorMessage(`Failed to launch Desktop HUD: ${err.message || err}`);
+    }
+  }
+  /**
+   * Initializes Jarvis for the current open workspace folder.
+   */
+  async initWorkspace(targetWorkspace) {
+    const ws = targetWorkspace || this.getActiveWorkspace();
+    const cliScript = path3.join(this.coreDir, "jarvis_cli.py");
+    const terminal = vscode3.window.createTerminal({
+      name: "JARVIS INIT",
+      cwd: ws,
+      iconPath: new vscode3.ThemeIcon("rocket")
+    });
+    terminal.show();
+    terminal.sendText(`py "${cliScript}" init "${ws}"`);
+  }
+};
+
+// src/statusBar.ts
+var vscode4 = __toESM(require("vscode"));
+var path4 = __toESM(require("path"));
+var StatusBarManager = class {
+  constructor(context, n8nService2, processManager) {
+    this.context = context;
+    this.n8nService = n8nService2;
+    this.processManager = processManager;
+    this.statusBarItem = vscode4.window.createStatusBarItem(
+      vscode4.StatusBarAlignment.Right,
+      1e3
+    );
+    this.statusBarItem.command = "jarvis.quickMenu";
+    this.context.subscriptions.push(this.statusBarItem);
+    this.n8nService.onStatusChange(() => {
+      this.updateDisplay();
+    });
+    this.updateDisplay();
+    this.statusBarItem.show();
+  }
+  statusBarItem;
+  updateDisplay() {
+    const ws = this.processManager.getActiveWorkspace();
+    const projName = path4.basename(ws).toUpperCase();
+    const n8nOnline = this.n8nService.getStatus();
+    this.statusBarItem.text = `$(hubot) JARVIS [${projName}]`;
+    this.statusBarItem.tooltip = new vscode4.MarkdownString(
+      `### \u26A1 JARVIS AUTONOMOUS ASSISTANT
+
+- **Active Project**: \`${projName}\`
+- **n8n Automation**: ${n8nOnline ? "\u{1F7E2} `ONLINE (5678)`" : "\u{1F534} `OFFLINE`"}
+- **Voice Listener**: Standing by for *'Hey Jarvis'*
+
+*Click to open Command Center Quick Actions*`
+    );
+    this.statusBarItem.tooltip.isTrusted = true;
+    this.statusBarItem.color = n8nOnline ? "#00ff88" : "#00e1ff";
+  }
+  /**
+   * Displays interactive Cyber Menu on status bar click.
+   */
+  async showQuickMenu() {
+    const n8nOnline = this.n8nService.getStatus();
+    const items = [
+      {
+        label: "$(mic) Start Voice Listener",
+        description: "Listen for 'Hey Jarvis' wake word in active workspace"
+      },
+      {
+        label: "$(primitive-square) Stop Voice Listener",
+        description: "Terminate background voice listener process"
+      },
+      {
+        label: "$(dashboard) Focus Cyber HUD Sidebar",
+        description: "Open the embedded holographic HUD in Antigravity IDE"
+      },
+      {
+        label: "$(window) Launch Desktop HUD Window",
+        description: "Open high-FPS PyQt6 desktop holographic dashboard"
+      },
+      {
+        label: `$(server-process) ${n8nOnline ? "n8n Workflow Engine: ONLINE" : "Start n8n Workflow Server"}`,
+        description: n8nOnline ? "http://localhost:5678" : "Initialize background server"
+      },
+      {
+        label: "$(key) Configure Groq API Key",
+        description: "Update Whisper STT & Llama credentials"
+      },
+      {
+        label: "$(rocket) Initialize Current Workspace",
+        description: "Scaffold .jarvis config, git repo, and project launchers"
+      }
+    ];
+    const pick = await vscode4.window.showQuickPick(items, {
+      title: "Jarvis Autonomous Systems - Command Center",
+      placeHolder: "Select action to execute..."
+    });
+    if (!pick) {
+      return;
+    }
+    if (pick.label.includes("Start Voice Listener")) {
+      vscode4.commands.executeCommand("jarvis.start");
+    } else if (pick.label.includes("Stop Voice Listener")) {
+      vscode4.commands.executeCommand("jarvis.stop");
+    } else if (pick.label.includes("Focus Cyber HUD Sidebar")) {
+      vscode4.commands.executeCommand("jarvis.openSidebarHud");
+    } else if (pick.label.includes("Launch Desktop HUD Window")) {
+      vscode4.commands.executeCommand("jarvis.openDesktopHud");
+    } else if (pick.label.includes("n8n")) {
+      vscode4.commands.executeCommand("jarvis.startN8n");
+    } else if (pick.label.includes("Configure Groq API Key")) {
+      vscode4.commands.executeCommand("jarvis.setGroqKey");
+    } else if (pick.label.includes("Initialize Current Workspace")) {
+      vscode4.commands.executeCommand("jarvis.initProject");
+    }
+  }
+};
+
+// src/hudViewProvider.ts
+var vscode5 = __toESM(require("vscode"));
+var fs4 = __toESM(require("fs"));
+var path5 = __toESM(require("path"));
+var HudViewProvider = class {
+  constructor(context, coreDir, n8nService2, processManager) {
+    this.context = context;
+    this.coreDir = coreDir;
+    this.n8nService = n8nService2;
+    this.processManager = processManager;
+  }
+  static viewType = "jarvis-hud-view";
+  _view;
+  resolveWebviewView(webviewView, _context, _token) {
+    this._view = webviewView;
+    webviewView.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [this.context.extensionUri]
+    };
+    webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
+    webviewView.webview.onDidReceiveMessage(async (message) => {
+      switch (message.command) {
+        case "startListener":
+          vscode5.commands.executeCommand("jarvis.start");
+          break;
+        case "stopListener":
+          vscode5.commands.executeCommand("jarvis.stop");
+          break;
+        case "openDesktopHud":
+          vscode5.commands.executeCommand("jarvis.openDesktopHud");
+          break;
+        case "restartN8n":
+          vscode5.commands.executeCommand("jarvis.startN8n");
+          break;
+        case "setGroqKey":
+          vscode5.commands.executeCommand("jarvis.setGroqKey");
+          break;
+        case "initProject":
+          vscode5.commands.executeCommand("jarvis.initProject");
+          break;
+        case "refresh":
+          this.sendTelemetryUpdate();
+          break;
+      }
+    });
+    this.n8nService.onStatusChange(() => {
+      this.sendTelemetryUpdate();
+    });
+    const telemetryTimer = setInterval(() => {
+      if (this._view?.visible) {
+        this.sendTelemetryUpdate();
+      }
+    }, 2e3);
+    this.context.subscriptions.push({
+      dispose: () => clearInterval(telemetryTimer)
+    });
+  }
+  sendTelemetryUpdate() {
+    if (!this._view) {
+      return;
+    }
+    const ws = this.processManager.getActiveWorkspace();
+    const projName = path5.basename(ws).toUpperCase();
+    const n8nOnline = this.n8nService.getStatus();
+    let lastTranscript = "Standing by for wake word 'Hey Jarvis'...";
+    let lastStatus = "Systems normal. Ready for commands.";
+    try {
+      const transFile = path5.join(this.coreDir, "last_transcript.txt");
+      if (fs4.existsSync(transFile)) {
+        const text = fs4.readFileSync(transFile, "utf-8").trim();
+        if (text) {
+          lastTranscript = text;
+        }
+      }
+      const statusFile = path5.join(this.coreDir, "last_status.txt");
+      if (fs4.existsSync(statusFile)) {
+        const sText = fs4.readFileSync(statusFile, "utf-8").trim();
+        if (sText) {
+          lastStatus = sText;
+        }
+      }
+    } catch {
+    }
+    this._view.webview.postMessage({
+      type: "telemetry",
+      project: projName,
+      workspace: ws,
+      n8nOnline,
+      lastTranscript,
+      lastStatus
+    });
+  }
+  getHtmlForWebview(_webview) {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jarvis Cyber HUD</title>
+  <style>
+    :root {
+      --cyan: #00e1ff;
+      --cyan-dim: rgba(0, 225, 255, 0.2);
+      --green: #00ff88;
+      --amber: #ff9d00;
+      --red: #ff4444;
+      --bg: #0b0b1e;
+      --panel-bg: rgba(14, 16, 40, 0.7);
+    }
+    body {
+      background-color: var(--bg);
+      color: #cad8e6;
+      font-family: 'Consolas', 'Segoe UI', monospace;
+      margin: 0;
+      padding: 12px;
+      user-select: none;
+    }
+    .hud-header {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .badge {
+      font-size: 10px;
+      font-weight: bold;
+      padding: 3px 6px;
+      border-radius: 2px;
+      border: 1px solid currentColor;
+      letter-spacing: 1px;
+    }
+    .badge-green { color: var(--green); background: rgba(0, 255, 136, 0.12); }
+    .badge-cyan { color: var(--cyan); background: rgba(0, 225, 255, 0.12); }
+    .badge-amber { color: var(--amber); background: rgba(255, 157, 0, 0.12); }
+    .badge-red { color: var(--red); background: rgba(255, 68, 68, 0.12); }
+
+    .reactor-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 10px 0;
+    }
+    canvas {
+      width: 140px;
+      height: 140px;
+    }
+
+    .project-title {
+      font-size: 13px;
+      font-weight: bold;
+      color: var(--cyan);
+      letter-spacing: 1.5px;
+      text-align: center;
+      margin-top: 4px;
+      border-bottom: 1px solid var(--cyan-dim);
+      padding-bottom: 6px;
+      width: 100%;
+    }
+
+    .panel {
+      background: var(--panel-bg);
+      border: 1px solid var(--cyan-dim);
+      border-radius: 3px;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+      position: relative;
+    }
+    .panel-title {
+      font-size: 9px;
+      font-weight: bold;
+      color: var(--cyan);
+      letter-spacing: 1.5px;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+
+    .transcript-box {
+      font-size: 11px;
+      color: #00ff88;
+      min-height: 38px;
+      word-break: break-word;
+      line-height: 1.4;
+    }
+    .status-box {
+      font-size: 11px;
+      color: #cad8e6;
+      min-height: 30px;
+      word-break: break-word;
+      line-height: 1.4;
+    }
+
+    .btn-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    button {
+      background: rgba(0, 225, 255, 0.08);
+      border: 1px solid var(--cyan);
+      color: var(--cyan);
+      font-family: inherit;
+      font-size: 10px;
+      font-weight: bold;
+      padding: 7px 4px;
+      border-radius: 2px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    button:hover {
+      background: rgba(0, 225, 255, 0.25);
+      box-shadow: 0 0 10px rgba(0, 225, 255, 0.5);
+    }
+    button.btn-primary {
+      grid-column: span 2;
+      background: rgba(0, 255, 136, 0.15);
+      border-color: var(--green);
+      color: var(--green);
+    }
+    button.btn-primary:hover {
+      background: rgba(0, 255, 136, 0.3);
+      box-shadow: 0 0 12px rgba(0, 255, 136, 0.6);
+    }
+  </style>
+</head>
+<body>
+  <div class="hud-header">
+    <div class="badge badge-green">[ACTIVE]</div>
+    <div class="badge badge-cyan">[SYS_OK]</div>
+    <div id="badge-n8n" class="badge badge-green">[N8N: ONLINE]</div>
+    <div class="badge badge-amber">[GROQ: OK]</div>
+  </div>
+
+  <div class="reactor-container">
+    <canvas id="reactorCanvas" width="280" height="280"></canvas>
+    <div id="projName" class="project-title">// JARVIS COMMAND CENTER //</div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">// 1. VOICE TRANSCRIPT //</div>
+    <div id="transcriptBox" class="transcript-box">Standing by for wake word 'Hey Jarvis'...</div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">// 2. TELEMETRY & STATUS //</div>
+    <div id="statusBox" class="status-box">Systems normal. Initialized for active workspace.</div>
+  </div>
+
+  <div class="btn-grid">
+    <button class="btn-primary" onclick="sendMessage('startListener')">\u{1F3A4} START VOICE LISTENER</button>
+    <button onclick="sendMessage('openDesktopHud')">\u{1F5A5}\uFE0F DESKTOP HUD</button>
+    <button onclick="sendMessage('restartN8n')">\u{1F504} RESTART N8N</button>
+    <button onclick="sendMessage('setGroqKey')">\u{1F511} SET GROQ KEY</button>
+    <button onclick="sendMessage('initProject')">\u{1F680} INIT WORKSPACE</button>
+  </div>
+
+  <script>
+    const vscode = acquireVsCodeApi();
+
+    function sendMessage(cmd) {
+      vscode.postMessage({ command: cmd });
+    }
+
+    // Arc reactor canvas animation
+    const canvas = document.getElementById('reactorCanvas');
+    const ctx = canvas.getContext('2d');
+    let angle = 0;
+    let pulse = 0;
+
+    function drawReactor() {
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      angle += 0.02;
+      pulse = (Math.sin(angle * 3) + 1) / 2;
+
+      // Outer dashed spinning ring
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(angle);
+      ctx.strokeStyle = '#00e1ff';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([12, 8]);
+      ctx.beginPath();
+      ctx.arc(0, 0, 110, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+
+      // Middle counter-rotating amber ring
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(-angle * 1.5);
+      ctx.strokeStyle = '#ff9d00';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([8, 12]);
+      ctx.beginPath();
+      ctx.arc(0, 0, 75, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+
+      // Inner glowing core
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.fillStyle = '#00ff88';
+      ctx.shadowColor = '#00ff88';
+      ctx.shadowBlur = 15 + pulse * 10;
+      ctx.beginPath();
+      ctx.arc(0, 0, 22 + pulse * 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      requestAnimationFrame(drawReactor);
+    }
+    drawReactor();
+
+    // Handle messages from VS Code
+    window.addEventListener('message', event => {
+      const msg = event.data;
+      if (msg.type === 'telemetry') {
+        document.getElementById('projName').textContent = '// [' + msg.project + '] //';
+        document.getElementById('transcriptBox').textContent = msg.lastTranscript;
+        document.getElementById('statusBox').textContent = msg.lastStatus;
+
+        const n8nBadge = document.getElementById('badge-n8n');
+        if (msg.n8nOnline) {
+          n8nBadge.className = 'badge badge-green';
+          n8nBadge.textContent = '[N8N: ONLINE]';
+        } else {
+          n8nBadge.className = 'badge badge-red';
+          n8nBadge.textContent = '[N8N: OFFLINE]';
+        }
+      }
+    });
+  </script>
+</body>
+</html>`;
+  }
+};
+
+// src/extension.ts
+var path6 = __toESM(require("path"));
+var n8nService;
+async function activate(context) {
+  console.log("[Jarvis Extension] Activating Autonomous Systems...");
+  const config = vscode6.workspace.getConfiguration("jarvis");
+  const coreDir = config.get("coreDir") || "C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant";
+  const autoStartN8n = config.get("autoStartN8n") ?? true;
+  const n8nUrl = config.get("n8nUrl") || "http://localhost:5678";
+  const secretManager = new SecretManager(context, coreDir);
+  n8nService = new N8nService(coreDir, n8nUrl);
+  const processManager = new ProcessManager(coreDir);
+  const statusBar = new StatusBarManager(context, n8nService, processManager);
+  const hudProvider = new HudViewProvider(context, coreDir, n8nService, processManager);
+  context.subscriptions.push(
+    vscode6.window.registerWebviewViewProvider(
+      HudViewProvider.viewType,
+      hudProvider,
+      {
+        webviewOptions: {
+          retainContextWhenHidden: true
+        }
+      }
+    )
+  );
+  context.subscriptions.push(
+    vscode6.commands.registerCommand("jarvis.start", () => {
+      processManager.startVoiceListener();
+    }),
+    vscode6.commands.registerCommand("jarvis.stop", () => {
+      processManager.stopVoiceListener();
+    }),
+    vscode6.commands.registerCommand("jarvis.openDesktopHud", () => {
+      processManager.launchDesktopHud();
+    }),
+    vscode6.commands.registerCommand("jarvis.openSidebarHud", () => {
+      vscode6.commands.executeCommand("workbench.view.extension.jarvis-sidebar");
+    }),
+    vscode6.commands.registerCommand("jarvis.setGroqKey", async () => {
+      await secretManager.promptForGroqKey(true);
+    }),
+    vscode6.commands.registerCommand("jarvis.startN8n", async () => {
+      await n8nService?.ensureRunning(false);
+    }),
+    vscode6.commands.registerCommand("jarvis.initProject", async () => {
+      await processManager.initWorkspace();
+    }),
+    vscode6.commands.registerCommand("jarvis.status", () => {
+      const ws = processManager.getActiveWorkspace();
+      const n8nUp = n8nService?.getStatus() ? "ONLINE (5678)" : "OFFLINE";
+      vscode6.window.showInformationMessage(
+        `Jarvis Status: Project [${path6.basename(ws).toUpperCase()}] | n8n: ${n8nUp} | Core: ${coreDir}`
+      );
+    }),
+    vscode6.commands.registerCommand("jarvis.quickMenu", async () => {
+      await statusBar.showQuickMenu();
+    })
+  );
+  const groqKey = await secretManager.getGroqKey();
+  if (!groqKey) {
+    setTimeout(() => {
+      secretManager.promptForGroqKey(false);
+    }, 1200);
+  }
+  if (autoStartN8n) {
+    n8nService.startPolling(5e3);
+    setTimeout(() => {
+      n8nService?.ensureRunning(true);
+    }, 2e3);
+  }
+  console.log("[Jarvis Extension] Fully activated and operational.");
+}
+function deactivate() {
+  if (n8nService) {
+    n8nService.stopPolling();
+  }
+}
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  activate,
+  deactivate
+});
+//# sourceMappingURL=extension.js.map

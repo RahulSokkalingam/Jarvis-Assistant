@@ -1,0 +1,120 @@
+{
+  "name": "jarvis-antigravity-extension",
+  "displayName": "Jarvis Voice Assistant & Cyber HUD",
+  "description": "Autonomous Sci-Fi Voice Assistant, n8n Workflow Automation, and Cybernetic HUD for Antigravity IDE",
+  "version": "1.0.0",
+  "publisher": "RahulSokkalingam",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "jarvis.start",
+        "title": "Jarvis: Start Voice Listener",
+        "icon": "$(mic)"
+      },
+      {
+        "command": "jarvis.stop",
+        "title": "Jarvis: Stop Voice Listener",
+        "icon": "$(primitive-square)"
+      },
+      {
+        "command": "jarvis.openSidebarHud",
+        "title": "Jarvis: Open Cyber HUD Sidebar",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "jarvis.openDesktopHud",
+        "title": "Jarvis: Launch Desktop Cyber HUD Window",
+        "icon": "$(window)"
+      },
+      {
+        "command": "jarvis.setGroqKey",
+        "title": "Jarvis: Configure Groq API Key",
+        "icon": "$(key)"
+      },
+      {
+        "command": "jarvis.startN8n",
+        "title": "Jarvis: Verify / Restart Background n8n Server",
+        "icon": "$(server-process)"
+      },
+      {
+        "command": "jarvis.initProject",
+        "title": "Jarvis: Initialize Jarvis for Current Workspace",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "jarvis.status",
+        "title": "Jarvis: Show System Status Telemetry",
+        "icon": "$(pulse)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "jarvis-sidebar",
+          "title": "Jarvis Cyber HUD",
+          "icon": "media/jarvis-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "jarvis-sidebar": [
+        {
+          "type": "webview",
+          "id": "jarvis-hud-view",
+          "name": "COMMAND CENTER",
+          "icon": "media/jarvis-icon.svg",
+          "contextualTitle": "Jarvis HUD"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "jarvis.start",
+        "key": "ctrl+alt+j",
+        "mac": "cmd+alt+j"
+      },
+      {
+        "command": "jarvis.openDesktopHud",
+        "key": "ctrl+alt+h",
+        "mac": "cmd+alt+h"
+      }
+    ],
+    "configuration": {
+      "title": "Jarvis Assistant",
+      "properties": {
+        "jarvis.coreDir": {
+          "type": "string",
+          "default": "C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant",
+          "description": "Absolute path to Jarvis Core Engine"
+        },
+        "jarvis.autoStartN8n": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically verify and start the background n8n automation server on IDE launch"
+        },
+        "jarvis.n8nUrl": {
+          "type": "string",
+          "default": "http://localhost:5678",
+          "description": "n8n Workflow Automation server URL"
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.1",
+    "typescript": "^5.3.3"
+  }
+}
