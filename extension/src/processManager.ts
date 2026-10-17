@@ -40,15 +40,26 @@ export class ProcessManager {
    * Dynamically resolves script location checking workspace, common subfolders, and coreDir.
    */
   public resolveScript(scriptName: string, ws: string): string {
-    const candidates = [
-      path.join(ws, scriptName),
-      path.join(ws, "Jarvis-Voice-Assistant", scriptName),
-      path.join(ws, "Jarvis-Assistant", scriptName),
+    // 1. If the current workspace is itself the genuine Jarvis Core repository:
+    if (fs.existsSync(path.join(ws, "jarvis_config.py")) && fs.existsSync(path.join(ws, scriptName))) {
+      return path.join(ws, scriptName);
+    }
+    if (
+      fs.existsSync(path.join(ws, "Jarvis-Voice-Assistant", "jarvis_config.py")) &&
+      fs.existsSync(path.join(ws, "Jarvis-Voice-Assistant", scriptName))
+    ) {
+      return path.join(ws, "Jarvis-Voice-Assistant", scriptName);
+    }
+
+    // 2. Otherwise (working on an external project like 'IS Project'), resolve from real Jarvis Core:
+    const coreCandidates = [
       path.join(this.coreDir, scriptName),
       path.join(this.coreDir, "Jarvis-Voice-Assistant", scriptName),
       path.join(this.coreDir, "Jarvis-Assistant", scriptName),
+      path.join("C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant", scriptName),
+      path.join(ws, scriptName),
     ];
-    for (const cand of candidates) {
+    for (const cand of coreCandidates) {
       if (fs.existsSync(cand)) {
         return cand;
       }

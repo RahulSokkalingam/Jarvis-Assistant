@@ -360,15 +360,20 @@ var ProcessManager = class {
    * Dynamically resolves script location checking workspace, common subfolders, and coreDir.
    */
   resolveScript(scriptName, ws) {
-    const candidates = [
-      path3.join(ws, scriptName),
-      path3.join(ws, "Jarvis-Voice-Assistant", scriptName),
-      path3.join(ws, "Jarvis-Assistant", scriptName),
+    if (fs3.existsSync(path3.join(ws, "jarvis_config.py")) && fs3.existsSync(path3.join(ws, scriptName))) {
+      return path3.join(ws, scriptName);
+    }
+    if (fs3.existsSync(path3.join(ws, "Jarvis-Voice-Assistant", "jarvis_config.py")) && fs3.existsSync(path3.join(ws, "Jarvis-Voice-Assistant", scriptName))) {
+      return path3.join(ws, "Jarvis-Voice-Assistant", scriptName);
+    }
+    const coreCandidates = [
       path3.join(this.coreDir, scriptName),
       path3.join(this.coreDir, "Jarvis-Voice-Assistant", scriptName),
-      path3.join(this.coreDir, "Jarvis-Assistant", scriptName)
+      path3.join(this.coreDir, "Jarvis-Assistant", scriptName),
+      path3.join("C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant", scriptName),
+      path3.join(ws, scriptName)
     ];
-    for (const cand of candidates) {
+    for (const cand of coreCandidates) {
       if (fs3.existsSync(cand)) {
         return cand;
       }
@@ -939,22 +944,25 @@ function checkPythonDependencies(coreDir, processManager) {
 }
 async function activate(context) {
   console.log("[Jarvis Extension] Activating Autonomous Systems...");
+  function isJarvisCore(dir) {
+    return fs5.existsSync(path6.join(dir, "jarvis_config.py")) && fs5.existsSync(path6.join(dir, "intent_router.py"));
+  }
   const config = vscode6.workspace.getConfiguration("jarvis");
   const configuredDir = config.get("coreDir");
   const bundledDir = path6.join(context.extensionPath, "python");
   const activeWs = vscode6.workspace.workspaceFolders?.[0]?.uri.fsPath;
   let coreDir = bundledDir;
-  if (configuredDir && fs5.existsSync(configuredDir)) {
+  if (configuredDir && isJarvisCore(configuredDir)) {
     coreDir = configuredDir;
-  } else if (activeWs && (fs5.existsSync(path6.join(activeWs, "jarvis_listener.py")) || fs5.existsSync(path6.join(activeWs, "transcribe.py")))) {
+  } else if (activeWs && isJarvisCore(activeWs)) {
     coreDir = activeWs;
-  } else if (activeWs && fs5.existsSync(path6.join(activeWs, "Jarvis-Voice-Assistant", "jarvis_listener.py"))) {
+  } else if (activeWs && isJarvisCore(path6.join(activeWs, "Jarvis-Voice-Assistant"))) {
     coreDir = path6.join(activeWs, "Jarvis-Voice-Assistant");
-  } else if (activeWs && fs5.existsSync(path6.join(activeWs, "Jarvis-Assistant", "jarvis_listener.py"))) {
+  } else if (activeWs && isJarvisCore(path6.join(activeWs, "Jarvis-Assistant"))) {
     coreDir = path6.join(activeWs, "Jarvis-Assistant");
-  } else if (fs5.existsSync("C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant")) {
+  } else if (isJarvisCore("C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant")) {
     coreDir = "C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant";
-  } else if (fs5.existsSync(bundledDir)) {
+  } else if (isJarvisCore(bundledDir)) {
     coreDir = bundledDir;
   }
   const autoStartN8n = config.get("autoStartN8n") ?? true;

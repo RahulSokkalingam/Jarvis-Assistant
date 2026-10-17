@@ -31,6 +31,14 @@ function checkPythonDependencies(coreDir: string, processManager: ProcessManager
 export async function activate(context: vscode.ExtensionContext) {
   console.log("[Jarvis Extension] Activating Autonomous Systems...");
 
+  // Helper to ensure a directory is the true Jarvis Core engine, not an unrelated project
+  function isJarvisCore(dir: string): boolean {
+    return (
+      fs.existsSync(path.join(dir, "jarvis_config.py")) &&
+      fs.existsSync(path.join(dir, "intent_router.py"))
+    );
+  }
+
   // 1. Read & auto-resolve core directory (works on C:, D:, or any drive)
   const config = vscode.workspace.getConfiguration("jarvis");
   const configuredDir = config.get<string>("coreDir");
@@ -38,17 +46,17 @@ export async function activate(context: vscode.ExtensionContext) {
   const activeWs = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
   let coreDir = bundledDir;
-  if (configuredDir && fs.existsSync(configuredDir)) {
+  if (configuredDir && isJarvisCore(configuredDir)) {
     coreDir = configuredDir;
-  } else if (activeWs && (fs.existsSync(path.join(activeWs, "jarvis_listener.py")) || fs.existsSync(path.join(activeWs, "transcribe.py")))) {
+  } else if (activeWs && isJarvisCore(activeWs)) {
     coreDir = activeWs;
-  } else if (activeWs && fs.existsSync(path.join(activeWs, "Jarvis-Voice-Assistant", "jarvis_listener.py"))) {
+  } else if (activeWs && isJarvisCore(path.join(activeWs, "Jarvis-Voice-Assistant"))) {
     coreDir = path.join(activeWs, "Jarvis-Voice-Assistant");
-  } else if (activeWs && fs.existsSync(path.join(activeWs, "Jarvis-Assistant", "jarvis_listener.py"))) {
+  } else if (activeWs && isJarvisCore(path.join(activeWs, "Jarvis-Assistant"))) {
     coreDir = path.join(activeWs, "Jarvis-Assistant");
-  } else if (fs.existsSync("C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant")) {
+  } else if (isJarvisCore("C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant")) {
     coreDir = "C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant";
-  } else if (fs.existsSync(bundledDir)) {
+  } else if (isJarvisCore(bundledDir)) {
     coreDir = bundledDir;
   }
 
