@@ -500,14 +500,48 @@ def execute_git_query(git_cmd: str, transcript: str) -> str:
     except Exception as e:
         return f"Unable to check git status: {e}"
 
+def is_repo_creation(transcript: str) -> bool:
+    """Detects intent to create a new GitHub repository."""
+    t = transcript.lower()
+    return any(k in t for k in [
+        "new repo", "create repo", "make a repo", "make repo",
+        "new repository", "create repository", "make a repository", "make repository"
+    ])
+
+def extract_repo_name(t: str, default: str = "project-repo") -> str:
+    """Extracts desired repository name from transcript or command string."""
+    if not t:
+        return default
+    m = re.search(r'(?:named|called)\s+([a-zA-Z0-9_\-\s]+?)(?:\s+(?:and|to|files|file|repo|repository|please)|\.|$)', t, re.IGNORECASE)
+    if m:
+        cand = m.group(1).strip()
+        clean = re.sub(r'[^a-zA-Z0-9_\-\.]', '-', cand).strip('-')
+        clean = re.sub(r'-+', '-', clean)
+        clean = re.sub(r'-(?:and|push|to|files)$', '', clean, flags=re.IGNORECASE).strip('-')
+        if clean and clean.lower() not in ['new', 'a', 'the', 'my', 'and', 'push']:
+            return clean
+
+    m2 = re.search(r'(?:new\s+)?(?:repo|repository)\s+(?:to\s+push\s+)?([a-zA-Z0-9_\-\s]+?)(?:\s+(?:files|file|and|to|please)|\.|$)', t, re.IGNORECASE)
+    if m2:
+        cand = m2.group(1).strip()
+        clean = re.sub(r'[^a-zA-Z0-9_\-\.]', '-', cand).strip('-')
+        clean = re.sub(r'-+', '-', clean)
+        clean = re.sub(r'-(?:and|push|to|files)$', '', clean, flags=re.IGNORECASE).strip('-')
+        if clean and clean.lower() not in ['new', 'a', 'the', 'my', 'and', 'push', 'and-push']:
+            return clean
+
+    return default
+
 def build_default_intent(transcript: str) -> dict:
-    cd_prefix = f'cd "{PROJECT_ROOT}"'
+    target_repo = get_target_repo()
+    proj_name = get_project_name(target_repo)
+    cd_prefix = f'cd "{target_repo}"'
     t = transcript.lower()
 
     # 1. Antigravity Coding, Bug Fixing, App Creation, HUD & Theme Intent (Immediate Priority)
     if is_antigravity_intent(transcript):
         target_file = extract_target_file(transcript)
-        target_path = os.path.join(PROJECT_ROOT, target_file)
+        target_path = os.path.join(target_repo, target_file)
 
         valid, full_tb, line_num, err_details = check_python_syntax(target_path)
         if not valid:
@@ -586,7 +620,21 @@ def build_default_intent(transcript: str) -> dict:
             "speaking_response": f"Branch {bname} has been created and pushed to GitHub, sir.",
         }
 
-    # 4. Git Action Intent (commit, push, etc.)
+    # 5. Repository Creation & Push Intent (Dedicated Handler)
+    if is_repo_creation(transcript):
+        repo_name = extract_repo_name(transcript, default=proj_name)
+        return {
+            "type": "git_action",
+            "action": "create_repo",
+            "target_file": repo_name,
+            "task_description": f"Create GitHub repository {repo_name} and push all files",
+            "command": f'{cd_prefix} && gh repo create {repo_name} --public --source=. --remote=origin --push',
+            "speaking_start": f"Creating new GitHub repository {repo_name} and pushing workspace files, sir.",
+            "speaking_progress": "",
+            "speaking_response": f"Repository {repo_name} has been created on GitHub and files pushed successfully, sir.",
+        }
+
+    # 6. Standard Git Commit & Push Intent
     if any(w in t for w in ["push", "commit", "repo", "github"]):
         return {
             "type": "git_action",
@@ -596,7 +644,7 @@ def build_default_intent(transcript: str) -> dict:
             "command": (
                 f'{cd_prefix} && git init && git add . && '
                 f'(git commit -m "Automated update via Jarvis" || echo "No changes to commit") && '
-                f'(git push || gh repo create "Jarvis-Voice-Assistant" --public --source=. --remote=origin --push)'
+                f'(git push || gh repo create "{proj_name}" --public --source=. --remote=origin --push)'
             ),
             "speaking_start": "Executing task: committing and pushing changes, sir.",
             "speaking_progress": "",
@@ -859,7 +907,11 @@ def route_intent(transcript: str) -> dict:
     if is_branch_creation(cleaned):
         return build_default_intent(cleaned)
 
-    # 4. IMMEDIATE ROUTING: Antigravity task regex/classifier match
+    # 4. IMMEDIATE ROUTING: Git repository creation & push
+    if is_repo_creation(cleaned):
+        return build_default_intent(cleaned)
+
+    # 5. IMMEDIATE ROUTING: Antigravity task regex/classifier match
     if is_antigravity_intent(cleaned):
         return build_default_intent(cleaned)
 
