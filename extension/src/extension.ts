@@ -97,6 +97,10 @@ export async function activate(context: vscode.ExtensionContext) {
       await n8nService?.ensureRunning(false);
     }),
 
+    vscode.commands.registerCommand("jarvis.stopN8n", async () => {
+      await n8nService?.stopN8n();
+    }),
+
     vscode.commands.registerCommand("jarvis.initProject", async () => {
       await processManager.initWorkspace();
     }),

@@ -59,6 +59,65 @@ MAX_RECORDING_SEC = 10    # Safety cap
 VAD_SPEECH_THRESHOLD = 0.35
 RMS_ENERGY_THRESHOLD = 250.0
 
+ACTIVE_SUBPROCESSES = []
+ACTIVE_SUBPROCESSES_LOCK = threading.Lock()
+
+def register_process(proc):
+    with ACTIVE_SUBPROCESSES_LOCK:
+        ACTIVE_SUBPROCESSES.append(proc)
+
+def unregister_process(proc):
+    with ACTIVE_SUBPROCESSES_LOCK:
+        if proc in ACTIVE_SUBPROCESSES:
+            ACTIVE_SUBPROCESSES.remove(proc)
+
+def kill_all_active_tasks():
+    """Immediately terminates any currently executing task, child subprocess, and speech playback."""
+    print("[Jarvis] Emergency STOP: Terminating all active tasks and speech processes...", flush=True)
+    with ACTIVE_SUBPROCESSES_LOCK:
+        for proc in list(ACTIVE_SUBPROCESSES):
+            try:
+                proc.terminate()
+                proc.kill()
+            except Exception:
+                pass
+        ACTIVE_SUBPROCESSES.clear()
+
+    # Kill any active speak.py, execute_git.py, execute_agent.py on the system
+    try:
+        import psutil
+        curr_pid = os.getpid()
+        for p in psutil.process_iter(['pid', 'name', 'cmdline']):
+            if p.info['pid'] != curr_pid:
+                cmd_line = " ".join(p.info.get('cmdline') or []).lower()
+                if any(x in cmd_line for x in ["speak.py", "execute_git.py", "execute_agent.py"]):
+                    try:
+                        p.kill()
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    # Stop pygame audio playback immediately
+    try:
+        if pygame.mixer.get_init():
+            pygame.mixer.music.stop()
+    except Exception:
+        pass
+
+def is_stop_command(transcript: str) -> bool:
+    """Detects whether voice command is an emergency stop / cancel / halt command."""
+    if not transcript:
+        return False
+    t = transcript.lower().strip()
+    stop_words = ["stop", "cancel", "abort", "terminate", "halt", "quiet", "silence"]
+    cleaned = re.sub(r'[^a-zA-Z\s]', '', t).strip()
+    words = cleaned.split()
+    if any(w in words for w in stop_words):
+        return True
+    phrases = ["jarvis stop", "stop jarvis", "stop talking", "shut up", "be quiet", "kill task", "stop task", "cancel task", "stop it"]
+    return any(p in cleaned for p in phrases)
+
 def launch_hud_interface():
     """Seamlessly launches the Jarvis Sci-Fi HUD in a non-blocking background subprocess."""
     target_dir = get_target_repo()
@@ -149,16 +208,30 @@ def run_autonomous_pipeline(audio_path: str):
     if os.getenv("DISPATCH_TO_N8N", "false").lower() == "true":
         threading.Thread(target=dispatch_to_n8n, args=(audio_path,), daemon=True).start()
 
+    def run_tracked(args):
+        p = subprocess.Popen(args, cwd=PROJECT_ROOT)
+        register_process(p)
+        try:
+            p.wait()
+            return p.returncode
+        finally:
+            unregister_process(p)
+
     try:
         # Step 1: Transcribe audio
         print("\n[Jarvis Pipeline] Step 1: Transcribing audio with Groq Whisper...")
-        t_proc = subprocess.run(
+        t_proc = subprocess.Popen(
             [sys.executable, os.path.join(PROJECT_ROOT, "transcribe.py"), audio_path],
             cwd=PROJECT_ROOT,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True
         )
-        transcript = t_proc.stdout.strip()
+        register_process(t_proc)
+        t_stdout, _ = t_proc.communicate()
+        unregister_process(t_proc)
+
+        transcript = (t_stdout or "").strip()
         if not transcript:
             print("[Jarvis Pipeline] No speech detected in audio capture.")
             return
@@ -171,14 +244,22 @@ def run_autonomous_pipeline(audio_path: str):
         except Exception:
             pass
 
+        # Immediate fast-path: Check for emergency STOP / CANCEL voice command
+        if is_stop_command(transcript):
+            print("[Jarvis Pipeline] EMERGENCY STOP voice command recognized! Terminating all tasks immediately.")
+            kill_all_active_tasks()
+            try:
+                status_path = os.path.join(PROJECT_ROOT, "last_status.txt")
+                with open(status_path, "w", encoding="utf-8") as sf:
+                    sf.write("[TERMINATED] Current task aborted by voice command.")
+            except Exception:
+                pass
+            run_tracked([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), "Standing down, sir."])
+            return
+
         # Step 2: Route intent dynamically with Groq LLM
         print("[Jarvis Pipeline] Step 2: Routing intent with Groq LLM...")
-        subprocess.run(
-            [sys.executable, os.path.join(PROJECT_ROOT, "intent_router.py")],
-            cwd=PROJECT_ROOT,
-            capture_output=True,
-            text=True
-        )
+        run_tracked([sys.executable, os.path.join(PROJECT_ROOT, "intent_router.py")])
 
         intent_file = os.path.join(PROJECT_ROOT, "last_intent.json")
         if not os.path.exists(intent_file):
@@ -192,27 +273,40 @@ def run_autonomous_pipeline(audio_path: str):
         spk_start = intent.get("speaking_start", "")
         spk_resp = intent.get("speaking_response", "")
 
+        # Check for stop_action from LLM router
+        if itype == "stop_action":
+            print("[Jarvis Pipeline] Router classified stop_action. Terminating all tasks.")
+            kill_all_active_tasks()
+            try:
+                status_path = os.path.join(PROJECT_ROOT, "last_status.txt")
+                with open(status_path, "w", encoding="utf-8") as sf:
+                    sf.write("[TERMINATED] Task aborted by voice command.")
+            except Exception:
+                pass
+            run_tracked([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), spk_resp or "Standing down, sir."])
+            return
+
         # Step 3: Handle Action vs QA
         if itype == "git_query":
             answer = spk_resp or "Checking git status, sir."
             print(f"[Jarvis Pipeline] Speaking answer: {answer}")
-            subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), answer], cwd=PROJECT_ROOT)
+            run_tracked([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), answer])
 
         elif itype == "git_action":
             # Acknowledge task start: "On it, sir..."
             start_phrase = spk_start or "On it, sir. Committing and pushing your changes."
             print(f"[Jarvis Pipeline] Announcing start: {start_phrase}")
-            subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), start_phrase], cwd=PROJECT_ROOT)
+            run_tracked([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), start_phrase])
 
             # Step 4: Execute Git operation
             print("[Jarvis Pipeline] Step 3: Executing Git CLI operation...")
-            git_proc = subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "execute_git.py")], cwd=PROJECT_ROOT)
+            ret_code = run_tracked([sys.executable, os.path.join(PROJECT_ROOT, "execute_git.py")])
 
             # Step 5: Announce completion or error
-            if git_proc.returncode == 0:
+            if ret_code == 0:
                 done_phrase = spk_resp or "Task completed successfully, sir."
                 print(f"[Jarvis Pipeline] Announcing completion: {done_phrase}")
-                subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), done_phrase], cwd=PROJECT_ROOT)
+                run_tracked([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), done_phrase])
             else:
                 err_phrase = "Git operation could not be completed, sir."
                 try:
@@ -225,24 +319,24 @@ def run_autonomous_pipeline(audio_path: str):
                 except Exception:
                     pass
                 print(f"[Jarvis Pipeline] Announcing failure: {err_phrase}")
-                subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), err_phrase], cwd=PROJECT_ROOT)
+                run_tracked([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), err_phrase])
 
         elif itype == "antigravity_task":
             start_phrase = spk_start or "On it, sir. Delegating task to Antigravity Agent."
             print(f"[Jarvis Pipeline] Announcing start: {start_phrase}")
-            subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), start_phrase], cwd=PROJECT_ROOT)
+            run_tracked([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), start_phrase])
 
             print("[Jarvis Pipeline] Step 3: Executing Antigravity Agent Bridge...")
-            subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "execute_agent.py")], cwd=PROJECT_ROOT)
+            run_tracked([sys.executable, os.path.join(PROJECT_ROOT, "execute_agent.py")])
 
             done_phrase = spk_resp or "Task completed, sir."
             print(f"[Jarvis Pipeline] Announcing completion: {done_phrase}")
-            subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), done_phrase], cwd=PROJECT_ROOT)
+            run_tracked([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), done_phrase])
 
         else:  # general_qa or codebase_qa
             if spk_resp:
                 print(f"[Jarvis Pipeline] Spoken QA Answer: {spk_resp}")
-                subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), spk_resp], cwd=PROJECT_ROOT)
+                run_tracked([sys.executable, os.path.join(PROJECT_ROOT, "speak.py"), spk_resp])
 
     except Exception as e:
         print(f"[Jarvis Pipeline] Error during autonomous pipeline execution: {e}", file=sys.stderr)
@@ -319,6 +413,9 @@ def main():
             if score >= THRESHOLD:
                 print(f"\n[Jarvis] Wake word detected! (Confidence: {score:.2f} >= {THRESHOLD})")
                 
+                # Halt any existing speech or running pipeline immediately so user has full control
+                kill_all_active_tasks()
+
                 # 1. True 0ms instant local audio acknowledgment
                 play_instant_wake_acknowledgment()
 

@@ -118,6 +118,36 @@ export class N8nService {
     return this.isOnline;
   }
 
+  /**
+   * Gracefully terminates the n8n server process and terminal.
+   */
+  public async stopN8n(): Promise<boolean> {
+    // 1. Close/dispose any active N8N integrated terminal
+    const terminal = vscode.window.terminals.find((t) => t.name === "N8N SERVER");
+    if (terminal) {
+      terminal.dispose();
+    }
+
+    // 2. Kill the process holding port 5678
+    try {
+      cp.execSync(
+        'powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 5678 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"',
+        { stdio: "ignore" }
+      );
+    } catch {}
+
+    // 3. Fallback kill by window title
+    try {
+      cp.execSync('taskkill /F /FI "WINDOWTITLE eq *n8n*" 2>nul', { stdio: "ignore" });
+    } catch {}
+
+    await new Promise((r) => setTimeout(r, 600));
+    await this.checkHealth();
+    this.updateStatus(false);
+    vscode.window.showInformationMessage("Jarvis: n8n Workflow Server stopped.");
+    return true;
+  }
+
   private updateStatus(newStatus: boolean): void {
     if (this.isOnline !== newStatus) {
       this.isOnline = newStatus;

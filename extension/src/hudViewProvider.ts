@@ -44,6 +44,9 @@ export class HudViewProvider implements vscode.WebviewViewProvider {
         case "restartN8n":
           vscode.commands.executeCommand("jarvis.startN8n");
           break;
+        case "stopN8n":
+          vscode.commands.executeCommand("jarvis.stopN8n");
+          break;
         case "setGroqKey":
           vscode.commands.executeCommand("jarvis.setGroqKey");
           break;
@@ -248,6 +251,15 @@ export class HudViewProvider implements vscode.WebviewViewProvider {
       background: rgba(0, 255, 136, 0.3);
       box-shadow: 0 0 12px rgba(0, 255, 136, 0.6);
     }
+    button.btn-danger {
+      border-color: var(--red);
+      color: var(--red);
+      background: rgba(255, 68, 68, 0.12);
+    }
+    button.btn-danger:hover {
+      background: rgba(255, 68, 68, 0.3);
+      box-shadow: 0 0 10px rgba(255, 68, 68, 0.5);
+    }
   </style>
 </head>
 <body>
@@ -277,6 +289,7 @@ export class HudViewProvider implements vscode.WebviewViewProvider {
     <button class="btn-primary" onclick="sendMessage('startListener')">🎤 START VOICE LISTENER</button>
     <button onclick="sendMessage('openDesktopHud')">🖥️ DESKTOP HUD</button>
     <button onclick="sendMessage('restartN8n')">🔄 RESTART N8N</button>
+    <button class="btn-danger" onclick="sendMessage('stopN8n')">🛑 STOP N8N</button>
     <button onclick="sendMessage('setGroqKey')">🔑 SET GROQ KEY</button>
     <button onclick="sendMessage('initProject')">🚀 INIT WORKSPACE</button>
   </div>

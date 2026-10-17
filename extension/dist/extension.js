@@ -162,6 +162,7 @@ GROQ_API_KEY=${key}
 // src/n8nService.ts
 var vscode2 = __toESM(require("vscode"));
 var http = __toESM(require("http"));
+var cp = __toESM(require("child_process"));
 var N8nService = class {
   constructor(coreDir, n8nUrl = "http://localhost:5678") {
     this.coreDir = coreDir;
@@ -258,6 +259,31 @@ var N8nService = class {
     }
     return this.isOnline;
   }
+  /**
+   * Gracefully terminates the n8n server process and terminal.
+   */
+  async stopN8n() {
+    const terminal = vscode2.window.terminals.find((t) => t.name === "N8N SERVER");
+    if (terminal) {
+      terminal.dispose();
+    }
+    try {
+      cp.execSync(
+        'powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 5678 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"',
+        { stdio: "ignore" }
+      );
+    } catch {
+    }
+    try {
+      cp.execSync('taskkill /F /FI "WINDOWTITLE eq *n8n*" 2>nul', { stdio: "ignore" });
+    } catch {
+    }
+    await new Promise((r) => setTimeout(r, 600));
+    await this.checkHealth();
+    this.updateStatus(false);
+    vscode2.window.showInformationMessage("Jarvis: n8n Workflow Server stopped.");
+    return true;
+  }
   updateStatus(newStatus) {
     if (this.isOnline !== newStatus) {
       this.isOnline = newStatus;
@@ -269,7 +295,7 @@ var N8nService = class {
 // src/processManager.ts
 var vscode3 = __toESM(require("vscode"));
 var path2 = __toESM(require("path"));
-var cp = __toESM(require("child_process"));
+var cp2 = __toESM(require("child_process"));
 var fs2 = __toESM(require("fs"));
 var ProcessManager = class {
   constructor(coreDir) {
@@ -296,7 +322,7 @@ var ProcessManager = class {
       return configured.trim();
     }
     try {
-      cp.execSync("py --version", { stdio: "ignore" });
+      cp2.execSync("py --version", { stdio: "ignore" });
       return "py";
     } catch {
       return "python";
@@ -358,7 +384,7 @@ var ProcessManager = class {
     const pyCmd = this.getPythonCmd();
     const executable = pyCmd === "py" ? "py.exe" : pyCmd.endsWith(".exe") ? pyCmd : "python.exe";
     try {
-      cp.spawn(executable, [hudScript, "--project", ws], {
+      cp2.spawn(executable, [hudScript, "--project", ws], {
         cwd: ws,
         detached: true,
         windowsHide: false,
@@ -456,8 +482,8 @@ var StatusBarManager = class {
         description: "Open high-FPS PyQt6 desktop holographic dashboard"
       },
       {
-        label: `$(server-process) ${n8nOnline ? "n8n Workflow Engine: ONLINE" : "Start n8n Workflow Server"}`,
-        description: n8nOnline ? "http://localhost:5678" : "Initialize background server"
+        label: n8nOnline ? "$(debug-stop) Stop n8n Workflow Server" : "$(server-process) Start n8n Workflow Server",
+        description: n8nOnline ? "Shut down local n8n server on port 5678" : "Initialize server on port 5678"
       },
       {
         label: "$(key) Configure Groq API Key",
@@ -483,7 +509,9 @@ var StatusBarManager = class {
       vscode4.commands.executeCommand("jarvis.openSidebarHud");
     } else if (pick.label.includes("Launch Desktop HUD Window")) {
       vscode4.commands.executeCommand("jarvis.openDesktopHud");
-    } else if (pick.label.includes("n8n")) {
+    } else if (pick.label.includes("Stop n8n")) {
+      vscode4.commands.executeCommand("jarvis.stopN8n");
+    } else if (pick.label.includes("Start n8n")) {
       vscode4.commands.executeCommand("jarvis.startN8n");
     } else if (pick.label.includes("Configure Groq API Key")) {
       vscode4.commands.executeCommand("jarvis.setGroqKey");
@@ -526,6 +554,9 @@ var HudViewProvider = class {
           break;
         case "restartN8n":
           vscode5.commands.executeCommand("jarvis.startN8n");
+          break;
+        case "stopN8n":
+          vscode5.commands.executeCommand("jarvis.stopN8n");
           break;
         case "setGroqKey":
           vscode5.commands.executeCommand("jarvis.setGroqKey");
@@ -718,6 +749,15 @@ var HudViewProvider = class {
       background: rgba(0, 255, 136, 0.3);
       box-shadow: 0 0 12px rgba(0, 255, 136, 0.6);
     }
+    button.btn-danger {
+      border-color: var(--red);
+      color: var(--red);
+      background: rgba(255, 68, 68, 0.12);
+    }
+    button.btn-danger:hover {
+      background: rgba(255, 68, 68, 0.3);
+      box-shadow: 0 0 10px rgba(255, 68, 68, 0.5);
+    }
   </style>
 </head>
 <body>
@@ -747,6 +787,7 @@ var HudViewProvider = class {
     <button class="btn-primary" onclick="sendMessage('startListener')">\u{1F3A4} START VOICE LISTENER</button>
     <button onclick="sendMessage('openDesktopHud')">\u{1F5A5}\uFE0F DESKTOP HUD</button>
     <button onclick="sendMessage('restartN8n')">\u{1F504} RESTART N8N</button>
+    <button class="btn-danger" onclick="sendMessage('stopN8n')">\u{1F6D1} STOP N8N</button>
     <button onclick="sendMessage('setGroqKey')">\u{1F511} SET GROQ KEY</button>
     <button onclick="sendMessage('initProject')">\u{1F680} INIT WORKSPACE</button>
   </div>
@@ -838,11 +879,11 @@ var HudViewProvider = class {
 // src/extension.ts
 var path5 = __toESM(require("path"));
 var fs4 = __toESM(require("fs"));
-var cp2 = __toESM(require("child_process"));
+var cp3 = __toESM(require("child_process"));
 var n8nService;
 function checkPythonDependencies(coreDir, processManager) {
   const pyCmd = processManager.getPythonCmd();
-  cp2.exec(`${pyCmd} -c "import PyQt6, openwakeword, edge_tts"`, (err) => {
+  cp3.exec(`${pyCmd} -c "import PyQt6, openwakeword, edge_tts"`, (err) => {
     if (err) {
       vscode6.window.showWarningMessage(
         "Jarvis: Python dependencies are missing on this system. Would you like to install them now?",
@@ -907,6 +948,9 @@ async function activate(context) {
     }),
     vscode6.commands.registerCommand("jarvis.startN8n", async () => {
       await n8nService?.ensureRunning(false);
+    }),
+    vscode6.commands.registerCommand("jarvis.stopN8n", async () => {
+      await n8nService?.stopN8n();
     }),
     vscode6.commands.registerCommand("jarvis.initProject", async () => {
       await processManager.initWorkspace();

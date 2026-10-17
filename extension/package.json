@@ -53,6 +53,11 @@
         "icon": "$(server-process)"
       },
       {
+        "command": "jarvis.stopN8n",
+        "title": "Jarvis: Stop Background n8n Server",
+        "icon": "$(debug-stop)"
+      },
+      {
         "command": "jarvis.initProject",
         "title": "Jarvis: Initialize Jarvis for Current Workspace",
         "icon": "$(rocket)"

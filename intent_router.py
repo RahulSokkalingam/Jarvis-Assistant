@@ -140,6 +140,17 @@ def sync_to_clipboard(text: str) -> bool:
             print(f"[intent_router.py] Clipboard sync error: {e}", file=sys.stderr)
             return False
 
+def is_stop_intent(transcript: str) -> bool:
+    """Detects emergency stop, cancellation, and speech silence commands."""
+    t = transcript.lower().strip()
+    stop_words = ["stop", "cancel", "abort", "terminate", "halt", "quiet", "silence"]
+    cleaned = re.sub(r'[^a-zA-Z\s]', '', t).strip()
+    words = cleaned.split()
+    if any(w in words for w in stop_words):
+        return True
+    phrases = ["jarvis stop", "stop jarvis", "stop talking", "shut up", "be quiet", "kill task", "stop task", "cancel task", "stop it"]
+    return any(p in cleaned for p in phrases)
+
 def is_antigravity_intent(transcript: str) -> bool:
     """Detects whether transcript requires Antigravity code generation, bug fixing, or HUD styling."""
     t = transcript.lower()
@@ -894,6 +905,15 @@ def route_intent(transcript: str) -> dict:
     cleaned = transcript.strip()
     if not cleaned or len(cleaned) < 2:
         return build_default_intent(cleaned)
+
+    # 0. IMMEDIATE ROUTING: Emergency stop / silence / abort
+    if is_stop_intent(cleaned):
+        return {
+            "type": "stop_action",
+            "command": "",
+            "speaking_start": "",
+            "speaking_response": "Task terminated. Standing down, sir."
+        }
 
     # 1. IMMEDIATE ROUTING: Git informational queries
     if is_git_query(cleaned):

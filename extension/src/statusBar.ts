@@ -67,8 +67,8 @@ export class StatusBarManager {
         description: "Open high-FPS PyQt6 desktop holographic dashboard",
       },
       {
-        label: `$(server-process) ${n8nOnline ? "n8n Workflow Engine: ONLINE" : "Start n8n Workflow Server"}`,
-        description: n8nOnline ? "http://localhost:5678" : "Initialize background server",
+        label: n8nOnline ? "$(debug-stop) Stop n8n Workflow Server" : "$(server-process) Start n8n Workflow Server",
+        description: n8nOnline ? "Shut down local n8n server on port 5678" : "Initialize server on port 5678",
       },
       {
         label: "$(key) Configure Groq API Key",
@@ -97,7 +97,9 @@ export class StatusBarManager {
       vscode.commands.executeCommand("jarvis.openSidebarHud");
     } else if (pick.label.includes("Launch Desktop HUD Window")) {
       vscode.commands.executeCommand("jarvis.openDesktopHud");
-    } else if (pick.label.includes("n8n")) {
+    } else if (pick.label.includes("Stop n8n")) {
+      vscode.commands.executeCommand("jarvis.stopN8n");
+    } else if (pick.label.includes("Start n8n")) {
       vscode.commands.executeCommand("jarvis.startN8n");
     } else if (pick.label.includes("Configure Groq API Key")) {
       vscode.commands.executeCommand("jarvis.setGroqKey");
