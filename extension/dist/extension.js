@@ -842,10 +842,15 @@ async function activate(context) {
   const config = vscode6.workspace.getConfiguration("jarvis");
   const configuredDir = config.get("coreDir");
   const bundledDir = path6.join(context.extensionPath, "python");
+  const activeWs = vscode6.workspace.workspaceFolders?.[0]?.uri.fsPath;
   let coreDir = bundledDir;
   if (configuredDir && fs5.existsSync(configuredDir)) {
     coreDir = configuredDir;
-  } else if (!fs5.existsSync(bundledDir) && fs5.existsSync("C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant")) {
+  } else if (activeWs && (fs5.existsSync(path6.join(activeWs, "jarvis_listener.py")) || fs5.existsSync(path6.join(activeWs, "transcribe.py")))) {
+    coreDir = activeWs;
+  } else if (fs5.existsSync(bundledDir)) {
+    coreDir = bundledDir;
+  } else if (fs5.existsSync("C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant")) {
     coreDir = "C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant";
   }
   const autoStartN8n = config.get("autoStartN8n") ?? true;

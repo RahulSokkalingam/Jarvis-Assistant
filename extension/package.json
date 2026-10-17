@@ -100,8 +100,8 @@
       "properties": {
         "jarvis.coreDir": {
           "type": "string",
-          "default": "C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant",
-          "description": "Absolute path to Jarvis Core Engine"
+          "default": "",
+          "description": "Path to Jarvis Core Engine (leave blank for automatic drive detection)"
         },
         "jarvis.autoStartN8n": {
           "type": "boolean",

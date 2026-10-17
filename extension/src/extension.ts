@@ -30,14 +30,20 @@ function checkPythonDependencies(coreDir: string) {
 export async function activate(context: vscode.ExtensionContext) {
   console.log("[Jarvis Extension] Activating Autonomous Systems...");
 
-  // 1. Read & auto-resolve core directory (bundled or custom)
+  // 1. Read & auto-resolve core directory (works on C:, D:, or any drive)
   const config = vscode.workspace.getConfiguration("jarvis");
   const configuredDir = config.get<string>("coreDir");
   const bundledDir = path.join(context.extensionPath, "python");
+  const activeWs = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
   let coreDir = bundledDir;
   if (configuredDir && fs.existsSync(configuredDir)) {
     coreDir = configuredDir;
-  } else if (!fs.existsSync(bundledDir) && fs.existsSync("C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant")) {
+  } else if (activeWs && (fs.existsSync(path.join(activeWs, "jarvis_listener.py")) || fs.existsSync(path.join(activeWs, "transcribe.py")))) {
+    coreDir = activeWs;
+  } else if (fs.existsSync(bundledDir)) {
+    coreDir = bundledDir;
+  } else if (fs.existsSync("C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant")) {
     coreDir = "C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant";
   }
 
