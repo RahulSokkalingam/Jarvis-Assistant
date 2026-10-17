@@ -69,9 +69,11 @@ export class ProcessManager {
       this.listenerTerminal = null;
     }
 
+    const scriptDir = fs.existsSync(listenerScript) ? path.dirname(listenerScript) : ws;
+
     this.listenerTerminal = vscode.window.createTerminal({
       name: "JARVIS LISTENER",
-      cwd: ws,
+      cwd: scriptDir,
       env: {
         TARGET_REPO_PATH: ws,
       },
@@ -111,12 +113,13 @@ export class ProcessManager {
       return;
     }
 
+    const scriptDir = path.dirname(hudScript);
     const pyCmd = this.getPythonCmd();
     const executable = pyCmd === "py" ? "py.exe" : (pyCmd.endsWith(".exe") ? pyCmd : "python.exe");
 
     try {
       cp.spawn(executable, [hudScript, "--project", ws], {
-        cwd: ws,
+        cwd: scriptDir,
         detached: true,
         windowsHide: false,
         stdio: "ignore",
@@ -140,10 +143,11 @@ export class ProcessManager {
   public async initWorkspace(targetWorkspace?: string): Promise<void> {
     const ws = targetWorkspace || this.getActiveWorkspace();
     const cliScript = this.resolveScript("jarvis_cli.py", ws);
+    const scriptDir = fs.existsSync(cliScript) ? path.dirname(cliScript) : ws;
 
     const terminal = vscode.window.createTerminal({
       name: "JARVIS INIT",
-      cwd: ws,
+      cwd: scriptDir,
       iconPath: new vscode.ThemeIcon("rocket"),
     });
 

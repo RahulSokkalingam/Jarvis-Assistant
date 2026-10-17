@@ -357,9 +357,10 @@ var ProcessManager = class {
       this.listenerTerminal.dispose();
       this.listenerTerminal = null;
     }
+    const scriptDir = fs2.existsSync(listenerScript) ? path2.dirname(listenerScript) : ws;
     this.listenerTerminal = vscode3.window.createTerminal({
       name: "JARVIS LISTENER",
-      cwd: ws,
+      cwd: scriptDir,
       env: {
         TARGET_REPO_PATH: ws
       },
@@ -394,11 +395,12 @@ var ProcessManager = class {
       vscode3.window.showErrorMessage(`Jarvis HUD script not found at ${hudScript}`);
       return;
     }
+    const scriptDir = path2.dirname(hudScript);
     const pyCmd = this.getPythonCmd();
     const executable = pyCmd === "py" ? "py.exe" : pyCmd.endsWith(".exe") ? pyCmd : "python.exe";
     try {
       cp2.spawn(executable, [hudScript, "--project", ws], {
-        cwd: ws,
+        cwd: scriptDir,
         detached: true,
         windowsHide: false,
         stdio: "ignore",
@@ -420,9 +422,10 @@ var ProcessManager = class {
   async initWorkspace(targetWorkspace) {
     const ws = targetWorkspace || this.getActiveWorkspace();
     const cliScript = this.resolveScript("jarvis_cli.py", ws);
+    const scriptDir = fs2.existsSync(cliScript) ? path2.dirname(cliScript) : ws;
     const terminal = vscode3.window.createTerminal({
       name: "JARVIS INIT",
-      cwd: ws,
+      cwd: scriptDir,
       iconPath: new vscode3.ThemeIcon("rocket")
     });
     const pyCmd = this.getPythonCmd();
