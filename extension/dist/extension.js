@@ -162,7 +162,9 @@ GROQ_API_KEY=${key}
 // src/n8nService.ts
 var vscode2 = __toESM(require("vscode"));
 var http = __toESM(require("http"));
+var path2 = __toESM(require("path"));
 var cp = __toESM(require("child_process"));
+var fs2 = __toESM(require("fs"));
 var N8nService = class {
   constructor(coreDir, n8nUrl = "http://localhost:5678") {
     this.coreDir = coreDir;
@@ -237,17 +239,43 @@ var N8nService = class {
       return true;
     }
     if (!silent) {
-      vscode2.window.showInformationMessage("Jarvis: Starting n8n workflow server in terminal...");
+      vscode2.window.showInformationMessage("Jarvis: Launching n8n Workflow Server in dedicated CMD window...");
     }
-    const existing = vscode2.window.terminals.find((t) => t.name === "N8N SERVER");
-    const terminal = existing || vscode2.window.createTerminal({
-      name: "N8N SERVER",
-      cwd: this.coreDir,
-      iconPath: new vscode2.ThemeIcon("server-process")
-    });
-    terminal.show();
-    terminal.sendText("npx -y n8n start");
-    for (let i = 0; i < 15; i++) {
+    const candidates = [
+      path2.join(this.coreDir, "start_n8n.bat"),
+      path2.join(this.coreDir, "Jarvis-Voice-Assistant", "start_n8n.bat"),
+      "C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant\\start_n8n.bat",
+      "C:\\Programming\\Jarvis\\start_n8n.bat"
+    ];
+    let batPath = "";
+    for (const cand of candidates) {
+      if (fs2.existsSync(cand)) {
+        batPath = cand;
+        break;
+      }
+    }
+    if (batPath) {
+      try {
+        cp.spawn("cmd.exe", ["/c", "start", "n8n Workflow Server", "cmd.exe", "/k", `"${batPath}"`], {
+          cwd: path2.dirname(batPath),
+          detached: true,
+          windowsHide: false,
+          stdio: "ignore"
+        }).unref();
+      } catch (err) {
+        console.error("Failed to spawn start_n8n.bat:", err);
+      }
+    } else {
+      const existing = vscode2.window.terminals.find((t) => t.name === "N8N SERVER");
+      const terminal = existing || vscode2.window.createTerminal({
+        name: "N8N SERVER",
+        cwd: this.coreDir,
+        iconPath: new vscode2.ThemeIcon("server-process")
+      });
+      terminal.show();
+      terminal.sendText("npx -y n8n start");
+    }
+    for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 1e3));
       const up = await this.checkHealth();
       if (up) {
@@ -294,9 +322,9 @@ var N8nService = class {
 
 // src/processManager.ts
 var vscode3 = __toESM(require("vscode"));
-var path2 = __toESM(require("path"));
+var path3 = __toESM(require("path"));
 var cp2 = __toESM(require("child_process"));
-var fs2 = __toESM(require("fs"));
+var fs3 = __toESM(require("fs"));
 var ProcessManager = class {
   constructor(coreDir) {
     this.coreDir = coreDir;
@@ -333,19 +361,19 @@ var ProcessManager = class {
    */
   resolveScript(scriptName, ws) {
     const candidates = [
-      path2.join(ws, scriptName),
-      path2.join(ws, "Jarvis-Voice-Assistant", scriptName),
-      path2.join(ws, "Jarvis-Assistant", scriptName),
-      path2.join(this.coreDir, scriptName),
-      path2.join(this.coreDir, "Jarvis-Voice-Assistant", scriptName),
-      path2.join(this.coreDir, "Jarvis-Assistant", scriptName)
+      path3.join(ws, scriptName),
+      path3.join(ws, "Jarvis-Voice-Assistant", scriptName),
+      path3.join(ws, "Jarvis-Assistant", scriptName),
+      path3.join(this.coreDir, scriptName),
+      path3.join(this.coreDir, "Jarvis-Voice-Assistant", scriptName),
+      path3.join(this.coreDir, "Jarvis-Assistant", scriptName)
     ];
     for (const cand of candidates) {
-      if (fs2.existsSync(cand)) {
+      if (fs3.existsSync(cand)) {
         return cand;
       }
     }
-    return path2.join(this.coreDir, scriptName);
+    return path3.join(this.coreDir, scriptName);
   }
   /**
    * Launches the Voice Listener in an integrated terminal.
@@ -357,7 +385,7 @@ var ProcessManager = class {
       this.listenerTerminal.dispose();
       this.listenerTerminal = null;
     }
-    const scriptDir = fs2.existsSync(listenerScript) ? path2.dirname(listenerScript) : ws;
+    const scriptDir = fs3.existsSync(listenerScript) ? path3.dirname(listenerScript) : ws;
     this.listenerTerminal = vscode3.window.createTerminal({
       name: "JARVIS LISTENER",
       cwd: scriptDir,
@@ -370,7 +398,7 @@ var ProcessManager = class {
     this.listenerTerminal.show(false);
     this.listenerTerminal.sendText(`${pyCmd} "${listenerScript}" --project "${ws}"`);
     vscode3.window.showInformationMessage(
-      `Jarvis Voice Assistant active for [${path2.basename(ws).toUpperCase()}]. Say 'Hey Jarvis'!`
+      `Jarvis Voice Assistant active for [${path3.basename(ws).toUpperCase()}]. Say 'Hey Jarvis'!`
     );
   }
   /**
@@ -391,11 +419,11 @@ var ProcessManager = class {
   launchDesktopHud(targetWorkspace) {
     const ws = targetWorkspace || this.getActiveWorkspace();
     const hudScript = this.resolveScript("jarvis_hud.py", ws);
-    if (!fs2.existsSync(hudScript)) {
+    if (!fs3.existsSync(hudScript)) {
       vscode3.window.showErrorMessage(`Jarvis HUD script not found at ${hudScript}`);
       return;
     }
-    const scriptDir = path2.dirname(hudScript);
+    const scriptDir = path3.dirname(hudScript);
     const pyCmd = this.getPythonCmd();
     const executable = pyCmd === "py" ? "py.exe" : pyCmd.endsWith(".exe") ? pyCmd : "python.exe";
     try {
@@ -410,7 +438,7 @@ var ProcessManager = class {
         }
       }).unref();
       vscode3.window.showInformationMessage(
-        `Jarvis: Desktop Cyber HUD launched for [${path2.basename(ws).toUpperCase()}].`
+        `Jarvis: Desktop Cyber HUD launched for [${path3.basename(ws).toUpperCase()}].`
       );
     } catch (err) {
       vscode3.window.showErrorMessage(`Failed to launch Desktop HUD: ${err.message || err}`);
@@ -422,7 +450,7 @@ var ProcessManager = class {
   async initWorkspace(targetWorkspace) {
     const ws = targetWorkspace || this.getActiveWorkspace();
     const cliScript = this.resolveScript("jarvis_cli.py", ws);
-    const scriptDir = fs2.existsSync(cliScript) ? path2.dirname(cliScript) : ws;
+    const scriptDir = fs3.existsSync(cliScript) ? path3.dirname(cliScript) : ws;
     const terminal = vscode3.window.createTerminal({
       name: "JARVIS INIT",
       cwd: scriptDir,
@@ -436,7 +464,7 @@ var ProcessManager = class {
 
 // src/statusBar.ts
 var vscode4 = __toESM(require("vscode"));
-var path3 = __toESM(require("path"));
+var path4 = __toESM(require("path"));
 var StatusBarManager = class {
   constructor(context, n8nService2, processManager) {
     this.context = context;
@@ -457,7 +485,7 @@ var StatusBarManager = class {
   statusBarItem;
   updateDisplay() {
     const ws = this.processManager.getActiveWorkspace();
-    const projName = path3.basename(ws).toUpperCase();
+    const projName = path4.basename(ws).toUpperCase();
     const n8nOnline = this.n8nService.getStatus();
     this.statusBarItem.text = `$(hubot) JARVIS [${projName}]`;
     this.statusBarItem.tooltip = new vscode4.MarkdownString(
@@ -536,8 +564,8 @@ var StatusBarManager = class {
 
 // src/hudViewProvider.ts
 var vscode5 = __toESM(require("vscode"));
-var fs3 = __toESM(require("fs"));
-var path4 = __toESM(require("path"));
+var fs4 = __toESM(require("fs"));
+var path5 = __toESM(require("path"));
 var HudViewProvider = class {
   constructor(context, coreDir, n8nService2, processManager) {
     this.context = context;
@@ -599,21 +627,21 @@ var HudViewProvider = class {
       return;
     }
     const ws = this.processManager.getActiveWorkspace();
-    const projName = path4.basename(ws).toUpperCase();
+    const projName = path5.basename(ws).toUpperCase();
     const n8nOnline = this.n8nService.getStatus();
     let lastTranscript = "Standing by for wake word 'Hey Jarvis'...";
     let lastStatus = "Systems normal. Ready for commands.";
     try {
-      const transFile = path4.join(this.coreDir, "last_transcript.txt");
-      if (fs3.existsSync(transFile)) {
-        const text = fs3.readFileSync(transFile, "utf-8").trim();
+      const transFile = path5.join(this.coreDir, "last_transcript.txt");
+      if (fs4.existsSync(transFile)) {
+        const text = fs4.readFileSync(transFile, "utf-8").trim();
         if (text) {
           lastTranscript = text;
         }
       }
-      const statusFile = path4.join(this.coreDir, "last_status.txt");
-      if (fs3.existsSync(statusFile)) {
-        const sText = fs3.readFileSync(statusFile, "utf-8").trim();
+      const statusFile = path5.join(this.coreDir, "last_status.txt");
+      if (fs4.existsSync(statusFile)) {
+        const sText = fs4.readFileSync(statusFile, "utf-8").trim();
         if (sText) {
           lastStatus = sText;
         }
@@ -890,8 +918,8 @@ var HudViewProvider = class {
 };
 
 // src/extension.ts
-var path5 = __toESM(require("path"));
-var fs4 = __toESM(require("fs"));
+var path6 = __toESM(require("path"));
+var fs5 = __toESM(require("fs"));
 var cp3 = __toESM(require("child_process"));
 var n8nService;
 function checkPythonDependencies(coreDir, processManager) {
@@ -913,20 +941,20 @@ async function activate(context) {
   console.log("[Jarvis Extension] Activating Autonomous Systems...");
   const config = vscode6.workspace.getConfiguration("jarvis");
   const configuredDir = config.get("coreDir");
-  const bundledDir = path5.join(context.extensionPath, "python");
+  const bundledDir = path6.join(context.extensionPath, "python");
   const activeWs = vscode6.workspace.workspaceFolders?.[0]?.uri.fsPath;
   let coreDir = bundledDir;
-  if (configuredDir && fs4.existsSync(configuredDir)) {
+  if (configuredDir && fs5.existsSync(configuredDir)) {
     coreDir = configuredDir;
-  } else if (activeWs && (fs4.existsSync(path5.join(activeWs, "jarvis_listener.py")) || fs4.existsSync(path5.join(activeWs, "transcribe.py")))) {
+  } else if (activeWs && (fs5.existsSync(path6.join(activeWs, "jarvis_listener.py")) || fs5.existsSync(path6.join(activeWs, "transcribe.py")))) {
     coreDir = activeWs;
-  } else if (activeWs && fs4.existsSync(path5.join(activeWs, "Jarvis-Voice-Assistant", "jarvis_listener.py"))) {
-    coreDir = path5.join(activeWs, "Jarvis-Voice-Assistant");
-  } else if (activeWs && fs4.existsSync(path5.join(activeWs, "Jarvis-Assistant", "jarvis_listener.py"))) {
-    coreDir = path5.join(activeWs, "Jarvis-Assistant");
-  } else if (fs4.existsSync("C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant")) {
+  } else if (activeWs && fs5.existsSync(path6.join(activeWs, "Jarvis-Voice-Assistant", "jarvis_listener.py"))) {
+    coreDir = path6.join(activeWs, "Jarvis-Voice-Assistant");
+  } else if (activeWs && fs5.existsSync(path6.join(activeWs, "Jarvis-Assistant", "jarvis_listener.py"))) {
+    coreDir = path6.join(activeWs, "Jarvis-Assistant");
+  } else if (fs5.existsSync("C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant")) {
     coreDir = "C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant";
-  } else if (fs4.existsSync(bundledDir)) {
+  } else if (fs5.existsSync(bundledDir)) {
     coreDir = bundledDir;
   }
   const autoStartN8n = config.get("autoStartN8n") ?? true;
@@ -976,7 +1004,7 @@ async function activate(context) {
       const ws = processManager.getActiveWorkspace();
       const n8nUp = n8nService?.getStatus() ? "ONLINE (5678)" : "OFFLINE";
       vscode6.window.showInformationMessage(
-        `Jarvis Status: Project [${path5.basename(ws).toUpperCase()}] | n8n: ${n8nUp} | Core: ${coreDir}`
+        `Jarvis Status: Project [${path6.basename(ws).toUpperCase()}] | n8n: ${n8nUp} | Core: ${coreDir}`
       );
     }),
     vscode6.commands.registerCommand("jarvis.installDependencies", () => {
@@ -985,7 +1013,7 @@ async function activate(context) {
         iconPath: new vscode6.ThemeIcon("tools")
       });
       term.show();
-      const reqFile = path5.join(coreDir, "requirements.txt");
+      const reqFile = path6.join(coreDir, "requirements.txt");
       const pyCmd = processManager.getPythonCmd();
       term.sendText(`${pyCmd} -m pip install -r "${reqFile}"`);
     }),

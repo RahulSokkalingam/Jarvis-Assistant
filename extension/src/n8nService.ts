@@ -88,23 +88,53 @@ export class N8nService {
     }
 
     if (!silent) {
-      vscode.window.showInformationMessage("Jarvis: Starting n8n workflow server in terminal...");
+      vscode.window.showInformationMessage("Jarvis: Launching n8n Workflow Server in dedicated CMD window...");
     }
 
-    const existing = vscode.window.terminals.find((t) => t.name === "N8N SERVER");
-    const terminal =
-      existing ||
-      vscode.window.createTerminal({
-        name: "N8N SERVER",
-        cwd: this.coreDir,
-        iconPath: new vscode.ThemeIcon("server-process"),
-      });
+    // Resolve start_n8n.bat
+    const candidates = [
+      path.join(this.coreDir, "start_n8n.bat"),
+      path.join(this.coreDir, "Jarvis-Voice-Assistant", "start_n8n.bat"),
+      "C:\\Programming\\Jarvis\\Jarvis-Voice-Assistant\\start_n8n.bat",
+      "C:\\Programming\\Jarvis\\start_n8n.bat",
+    ];
 
-    terminal.show();
-    terminal.sendText("npx -y n8n start");
+    let batPath = "";
+    for (const cand of candidates) {
+      if (fs.existsSync(cand)) {
+        batPath = cand;
+        break;
+      }
+    }
 
-    // Poll for up to 15 seconds
-    for (let i = 0; i < 15; i++) {
+    if (batPath) {
+      try {
+        cp.spawn("cmd.exe", ["/c", "start", "n8n Workflow Server", "cmd.exe", "/k", `"${batPath}"`], {
+          cwd: path.dirname(batPath),
+          detached: true,
+          windowsHide: false,
+          stdio: "ignore",
+        }).unref();
+      } catch (err) {
+        console.error("Failed to spawn start_n8n.bat:", err);
+      }
+    } else {
+      // Fallback: integrated terminal
+      const existing = vscode.window.terminals.find((t) => t.name === "N8N SERVER");
+      const terminal =
+        existing ||
+        vscode.window.createTerminal({
+          name: "N8N SERVER",
+          cwd: this.coreDir,
+          iconPath: new vscode.ThemeIcon("server-process"),
+        });
+
+      terminal.show();
+      terminal.sendText("npx -y n8n start");
+    }
+
+    // Poll for up to 30 seconds
+    for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 1000));
       const up = await this.checkHealth();
       if (up) {
