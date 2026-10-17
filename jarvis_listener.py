@@ -36,6 +36,7 @@ from jarvis_config import (
     is_n8n_online,
     ensure_n8n_running,
     get_current_git_branch,
+    launch_hud,
 )
 
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "http://localhost:5678/webhook/jarvis-git").strip()
@@ -60,23 +61,8 @@ RMS_ENERGY_THRESHOLD = 250.0
 
 def launch_hud_interface():
     """Seamlessly launches the Jarvis Sci-Fi HUD in a non-blocking background subprocess."""
-    hud_script = os.path.join(PROJECT_ROOT, "jarvis_hud.py")
-    if os.path.exists(hud_script):
-        target_dir = get_target_repo()
-        hud_env = os.environ.copy()
-        hud_env["TARGET_REPO_PATH"] = target_dir
-        try:
-            DETACHED_FLAGS = 0x00000008 | 0x00000200
-            subprocess.Popen(
-                [sys.executable, hud_script, "--project", target_dir],
-                cwd=target_dir,
-                env=hud_env,
-                creationflags=DETACHED_FLAGS,
-                close_fds=True
-            )
-            print(f"[Jarvis] Sci-Fi HUD Desktop Interface launched for [{get_project_name(target_dir).upper()}].")
-        except Exception as e:
-            print(f"[Jarvis] Notice: Could not launch HUD window: {e}", file=sys.stderr)
+    target_dir = get_target_repo()
+    launch_hud(target_dir)
 
 def play_instant_wake_acknowledgment():
     """Plays pre-rendered 'on_it.mp3' directly in the process for true 0ms response."""

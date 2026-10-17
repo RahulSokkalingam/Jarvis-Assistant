@@ -24,6 +24,8 @@ from jarvis_config import (
     is_n8n_online,
     ensure_n8n_running,
     get_current_git_branch,
+    is_hud_running,
+    launch_hud as run_hud_window,
 )
 
 # Set stdout/stderr to utf-8 safe
@@ -131,28 +133,15 @@ def init_project(target_arg: str = None):
 
     # 7. Launch Jarvis HUD Window for this project
     print(f"\n>> Launching Jarvis Sci-Fi HUD for [{project_name.upper()}]...")
-    hud_env = os.environ.copy()
-    hud_env["TARGET_REPO_PATH"] = target_dir
-    DETACHED_FLAGS = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-    try:
-        subprocess.Popen(
-            [sys.executable, os.path.join(JARVIS_CORE_DIR, "jarvis_hud.py"), "--project", target_dir],
-            cwd=target_dir,
-            env=hud_env,
-            creationflags=DETACHED_FLAGS,
-            close_fds=True
-        )
-        print("  [*] Jarvis HUD Desktop Window opened successfully!")
-    except Exception as e:
-        print(f"  [!] Notice: Could not launch HUD window automatically: {e}")
+    run_hud_window(target_dir)
 
-    print("\n═════════════════════════════════════════════════════════════════════════")
+    print("\n=========================================================================")
     print(f"  JARVIS INITIALIZATION COMPLETE FOR [{project_name.upper()}]")
     print(f"  - Active Workspace : {target_dir}")
     print(f"  - Current Branch   : {current_branch}")
     print(f"  - n8n Automation   : {'ONLINE (http://localhost:5678)' if is_n8n_online() else 'OFFLINE'}")
     print("  - Voice Listener   : Run 'jarvis start' or double-click 'start_jarvis.bat'")
-    print("═════════════════════════════════════════════════════════════════════════\n")
+    print("=========================================================================\n")
 
 def start_jarvis(target_arg: str = None):
     print_banner()
@@ -166,24 +155,13 @@ def start_jarvis(target_arg: str = None):
     ensure_n8n_running()
 
     # Launch HUD if not already open
-    hud_env = os.environ.copy()
-    hud_env["TARGET_REPO_PATH"] = target_dir
-    DETACHED_FLAGS = 0x00000008 | 0x00000200
-    try:
-        subprocess.Popen(
-            [sys.executable, os.path.join(JARVIS_CORE_DIR, "jarvis_hud.py"), "--project", target_dir],
-            cwd=target_dir,
-            env=hud_env,
-            creationflags=DETACHED_FLAGS,
-            close_fds=True
-        )
-        print("  [*] Jarvis HUD Window opened.")
-    except Exception as e:
-        print(f"  [!] Note: {e}")
+    run_hud_window(target_dir)
 
     # Launch Voice Listener in foreground
     print("  [*] Launching Zero-Latency Voice Listener (Say 'Hey Jarvis')...\n")
     listener_script = os.path.join(JARVIS_CORE_DIR, "jarvis_listener.py")
+    hud_env = os.environ.copy()
+    hud_env["TARGET_REPO_PATH"] = target_dir
     subprocess.run([sys.executable, listener_script, "--project", target_dir], cwd=target_dir, env=hud_env)
 
 def launch_hud(target_arg: str = None):
@@ -191,16 +169,7 @@ def launch_hud(target_arg: str = None):
     set_active_project(target_dir)
     project_name = get_project_name(target_dir)
     print(f">> Launching Jarvis HUD for [{project_name.upper()}]...")
-    hud_env = os.environ.copy()
-    hud_env["TARGET_REPO_PATH"] = target_dir
-    DETACHED_FLAGS = 0x00000008 | 0x00000200
-    subprocess.Popen(
-        [sys.executable, os.path.join(JARVIS_CORE_DIR, "jarvis_hud.py"), "--project", target_dir],
-        cwd=target_dir,
-        env=hud_env,
-        creationflags=DETACHED_FLAGS,
-        close_fds=True
-    )
+    run_hud_window(target_dir)
     print(f"  [*] HUD opened for {target_dir}")
 
 def show_status():

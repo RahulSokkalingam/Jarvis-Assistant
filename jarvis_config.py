@@ -121,3 +121,46 @@ def get_current_git_branch(repo_path: str = None) -> str:
     except Exception:
         pass
     return "main"
+
+def is_hud_running() -> bool:
+    """Checks whether jarvis_hud.py process is already running on this machine."""
+    try:
+        import psutil
+        for proc in psutil.process_iter(['name', 'cmdline']):
+            try:
+                cmdline = proc.info.get('cmdline') or []
+                if any('jarvis_hud.py' in str(arg).lower() for arg in cmdline):
+                    return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+    except Exception:
+        pass
+    return False
+
+def launch_hud(target_dir: str = None) -> bool:
+    """Reliably launches the Jarvis HUD desktop GUI window using Windows Shell."""
+    target = target_dir or get_target_repo()
+    if is_hud_running():
+        return True
+
+    hud_script = os.path.join(JARVIS_CORE_DIR, "jarvis_hud.py")
+    if not os.path.exists(hud_script):
+        return False
+
+    hud_env = os.environ.copy()
+    hud_env["TARGET_REPO_PATH"] = target
+    proj_name = get_project_name(target).upper()
+
+    # Launch directly via Windows Shell to guarantee desktop window visibility
+    cmd_str = f'start "JARVIS HUD - [{proj_name}]" py "{hud_script}" --project "{target}"'
+    try:
+        subprocess.Popen(
+            ["cmd.exe", "/c", cmd_str],
+            cwd=target,
+            env=hud_env
+        )
+        time.sleep(0.5)
+        return True
+    except Exception as e:
+        print(f"[Jarvis HUD Launch Error]: {e}", file=sys.stderr)
+        return False

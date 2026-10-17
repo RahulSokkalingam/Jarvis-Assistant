@@ -277,7 +277,7 @@ class RotatingAICore(QWidget):
 
 
 class JarvisHUD(QMainWindow):
-    def __init__(self):
+    def __init__(self, target_repo: str = None):
         super().__init__()
         self.setWindowTitle("JARVIS COMMAND CENTER - MAIN HUD")
         self.resize(1280, 720)
